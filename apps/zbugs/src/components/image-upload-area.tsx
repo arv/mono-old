@@ -118,48 +118,51 @@ export function ImageUploadArea({
     [getSelection, onInsert, textAreaRef, focusAndSetSelection],
   );
 
-  const uploadFile = useCallback(async (file: File): Promise<void> => {
-    const validationError = validateFile(file);
-    if (validationError) {
-      alert(validationError);
-      return;
-    }
+  const uploadFile = useCallback(
+    async (file: File): Promise<void> => {
+      const validationError = validateFile(file);
+      if (validationError) {
+        alert(validationError);
+        return;
+      }
 
-    if (!loginState) {
-      alert('You must be logged in to upload images.');
-      return;
-    }
+      if (!loginState) {
+        alert('You must be logged in to upload images.');
+        return;
+      }
 
-    setIsUploading(true);
-    try {
-      // 1. Get presigned URL
-      const {url: presignedUrl, key} = await getPresignedUrl(
-        file.type,
-        loginState?.encoded,
-      );
+      setIsUploading(true);
+      try {
+        // 1. Get presigned URL
+        const {url: presignedUrl, key} = await getPresignedUrl(
+          file.type,
+          loginState?.encoded,
+        );
 
-      // 2. Upload to S3
-      await fetch(presignedUrl, {
-        method: 'PUT',
-        body: file,
-        headers: {
-          'Content-Type': file.type,
-        },
-      });
+        // 2. Upload to S3
+        await fetch(presignedUrl, {
+          method: 'PUT',
+          body: file,
+          headers: {
+            'Content-Type': file.type,
+          },
+        });
 
-      // 3. Get public URL and create markdown
-      const imageUrl = `https://zbugs-image-uploads.s3.amazonaws.com/${key}`;
-      const markdown = `![${file.name}](${imageUrl})`;
+        // 3. Get public URL and create markdown
+        const imageUrl = `https://zbugs-image-uploads.s3.amazonaws.com/${key}`;
+        const markdown = `![${file.name}](${imageUrl})`;
 
-      // 4. Insert markdown into textarea
-      insert(markdown);
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      alert('An error occurred while uploading the image. Please try again.');
-    } finally {
-      setIsUploading(false);
-    }
-  }, [insert, loginState]);
+        // 4. Insert markdown into textarea
+        insert(markdown);
+      } catch (error) {
+        console.error('Error uploading image:', error);
+        alert('An error occurred while uploading the image. Please try again.');
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [insert, loginState],
+  );
 
   const uploadFiles = useCallback(
     async (files: File[]): Promise<void> => {
