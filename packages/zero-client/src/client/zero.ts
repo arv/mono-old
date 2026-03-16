@@ -148,7 +148,6 @@ import {
   toWSString,
 } from './http-string.ts';
 import {
-  fetchWebTransportInfo,
   fingerprintToHashBuffer,
   WebTransportSocket,
 } from './web-transport-socket.ts';
@@ -409,6 +408,8 @@ export class Zero<
 
   #socket: WebSocket | WebTransportSocket | undefined = undefined;
   #socketResolver = resolver<WebSocket | WebTransportSocket>();
+  /** Cached WT cert fingerprint received from server; used for cert-pinning on reconnect. */
+  #wtCertFingerprint: string | undefined = undefined;
   /**
    * Utility promise that resolves when the socket transitions to connected.
    * It rejects if we hit an error or timeout before the connected message.
@@ -1626,7 +1627,11 @@ export class Zero<
       additionalConnectParams,
       await this.#activeClientsManager,
       this.#options.maxHeaderLength,
-      this.#options.useWebTransport ?? false,
+      this.#options.webTransportPort,
+      this.#wtCertFingerprint,
+      fingerprint => {
+        this.#wtCertFingerprint = fingerprint;
+      },
     );
 
     if (this.closed) {
@@ -2438,7 +2443,9 @@ export async function createSocket(
   additionalConnectParams: Record<string, string> | undefined,
   activeClientsManager: Pick<ActiveClientsManager, 'activeClients'>,
   maxHeaderLength = 1024 * 8,
-  useWebTransport = false,
+  webTransportPort: number | undefined = undefined,
+  cachedCertFingerprint: string | undefined = undefined,
+  onCertInfo: (fingerprint: string) => void = () => {},
 ): Promise<
   [
     WebSocket | WebTransportSocket,
@@ -2449,69 +2456,68 @@ export async function createSocket(
   // -------------------------------------------------------------------------
   // WebTransport path (PoC)
   // -------------------------------------------------------------------------
-  if (useWebTransport) {
-    // Derive the HTTP origin from the WebSocket origin (ws:// → http://).
+  if (webTransportPort !== undefined) {
+    // Derive the HTTPS origin from the WebSocket origin (ws:// → http://).
     const httpOrigin = socketOrigin.replace(/^wss?:\/\//, m =>
       m === 'wss://' ? 'https://' : 'http://',
     );
-    const wtInfo = await fetchWebTransportInfo(httpOrigin);
-    if (!wtInfo) {
-      lc.warn?.(
-        'WebTransport requested but server /wt-cert not available; falling back to WebSocket',
-      );
-      // Fall through to the WebSocket path below.
-    } else {
-      // Build the WebTransport URL.  Reuse createConnectionURL but with the
-      // HTTPS origin and the WebTransport port.
-      const wtOrigin = httpOrigin.replace(
-        /:\d+/,
-        `:${wtInfo.port}`,
-      ) as HTTPString;
-      const wtUrl = await createConnectionURL(
-        wtOrigin,
-        clientID,
-        clientGroupID,
-        userID,
-        baseCookie,
-        lmid,
-        wsid,
-        rep,
-        debugPerf,
-        additionalConnectParams,
-        lc,
-      );
-      // Add auth as a URL param (no Sec-WebSocket-Protocol in WebTransport).
-      if (auth) {
-        wtUrl.searchParams.set('auth', auth);
-      }
-
-      const queriesPatch = await rep.query(tx =>
-        queryManager.getQueriesPatch(tx),
-      );
-      // For WebTransport the initConnectionMessage is sent as the first
-      // application message, NOT in a header.  Return the patch so the caller
-      // can send it after the connection is established.
-      const deletedClientsArray =
-        await deleteClientsManager.getDeletedClients();
-      const deletedClients = convertDeletedClientsToBody(
-        deletedClientsArray,
-        clientGroupID,
-      );
-
-      const certHashBuffer = fingerprintToHashBuffer(wtInfo.fingerprint);
-      const socket = new WebTransportSocket(wtUrl.toString(), certHashBuffer);
-
-      lc.info?.('Connecting via WebTransport', {
-        url: wtUrl.toString(),
-        fingerprint: wtInfo.fingerprint,
-      });
-
-      return [
-        socket as unknown as WebSocket,
-        queriesPatch,
-        skipEmptyDeletedClients(deletedClients),
-      ];
+    // Build the WebTransport URL using the configured port.
+    const wtOrigin = httpOrigin.replace(
+      /:\d+/,
+      `:${webTransportPort}`,
+    ) as HTTPString;
+    const wtUrl = await createConnectionURL(
+      wtOrigin,
+      clientID,
+      clientGroupID,
+      userID,
+      baseCookie,
+      lmid,
+      wsid,
+      rep,
+      debugPerf,
+      additionalConnectParams,
+      lc,
+    );
+    // Add auth as a URL param (no Sec-WebSocket-Protocol in WebTransport).
+    if (auth) {
+      wtUrl.searchParams.set('auth', auth);
     }
+
+    const queriesPatch = await rep.query(tx =>
+      queryManager.getQueriesPatch(tx),
+    );
+    // For WebTransport the initConnectionMessage is sent as the first
+    // application message, NOT in a header.  Return the patch so the caller
+    // can send it after the connection is established.
+    const deletedClientsArray = await deleteClientsManager.getDeletedClients();
+    const deletedClients = convertDeletedClientsToBody(
+      deletedClientsArray,
+      clientGroupID,
+    );
+
+    // Use the cached cert fingerprint for pinning if available (subsequent
+    // reconnects).  On cold start omit it and rely on normal TLS trust.
+    const certHashBuffer = cachedCertFingerprint
+      ? fingerprintToHashBuffer(cachedCertFingerprint)
+      : undefined;
+
+    const socket = new WebTransportSocket(
+      wtUrl.toString(),
+      certHashBuffer,
+      onCertInfo,
+    );
+
+    lc.info?.('Connecting via WebTransport', {
+      url: wtUrl.toString(),
+      pinned: cachedCertFingerprint !== undefined,
+    });
+
+    return [
+      socket as unknown as WebSocket,
+      queriesPatch,
+      skipEmptyDeletedClients(deletedClients),
+    ];
   }
 
   // -------------------------------------------------------------------------

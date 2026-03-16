@@ -321,20 +321,20 @@ export interface ZeroOptions<
   context?: C | undefined;
 
   /**
-   * (PoC) Use WebTransport (HTTP/3 + QUIC) instead of WebSocket for the sync
-   * connection.
+   * (PoC) Port of the WebTransport (HTTP/3 + QUIC) server.
    *
-   * Requires `ZERO_WT_PORT` to be set on the server.  The client automatically
-   * fetches the server's TLS certificate fingerprint from `GET <server>/wt-cert`
-   * before connecting, so no additional client-side configuration is needed for
-   * development with self-signed certificates.
+   * When set, the client connects via WebTransport instead of WebSocket.
+   * Requires `ZERO_WT_PORT` to be set to the same value on the server.
+   *
+   * On the first connection the client connects without certificate pinning.
+   * The server delivers its TLS certificate fingerprint as the first message
+   * on the stream; the client caches it and uses it for cert-pinning on
+   * subsequent reconnects (same mechanism as `initConnection`).
    *
    * **This is a proof-of-concept feature.** It is not recommended for
    * production use without further hardening.
-   *
-   * Default: `false`
    */
-  useWebTransport?: boolean | undefined;
+  webTransportPort?: number | undefined;
 }
 
 /**

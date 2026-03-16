@@ -23,8 +23,9 @@
  * - The `initConnectionMessage` is sent as the first message on the
  *   bidirectional stream rather than being encoded in a header.
  * - Self-signed TLS certificates are used; browsers require
- *   `serverCertificateHashes` to be set (available at `GET /wt-cert` on the
- *   main HTTP server).
+ *   `serverCertificateHashes` to be set.  The cert fingerprint is delivered
+ *   as the first server→client message on the WT stream so clients can pin
+ *   it on subsequent reconnects (same mechanism as `initConnection`).
  *
  * ## Performance Hypothesis
  *
@@ -39,7 +40,6 @@
  */
 import type {LogContext} from '@rocicorp/logger';
 import {createHash} from 'node:crypto';
-import {writeFile} from 'node:fs/promises';
 import {Http3Server} from '@fails-components/webtransport';
 import type {WebTransportSession} from '@fails-components/webtransport';
 import {generate as generateCert} from 'selfsigned';
@@ -48,7 +48,7 @@ import {getConnectParamsFromWebTransportUrl} from './connect-params.ts';
 import type {ConnectParams} from './connect-params.ts';
 import {createWebTransportTransport} from './transport.ts';
 
-/** Certificate info written to disk so the HTTP server can serve it. */
+/** Certificate info sent to the client as the first WT stream message. */
 export type WtCertInfo = {
   /** Colon-separated hex SHA-256 fingerprint, e.g. "AA:BB:CC:..." */
   fingerprint: string;
@@ -207,6 +207,22 @@ export class WebTransportServer {
       params.clientID,
     );
 
+    // Send cert info as the first server→client message so the client can pin
+    // the certificate on subsequent reconnects.  This mirrors the pattern of
+    // `initConnection` being the first client→server message on the stream.
+    try {
+      const encoder = new TextEncoder();
+      const writer = bidiStream.writable.getWriter();
+      await writer.write(
+        encoder.encode(JSON.stringify({wtCertInfo: this.#certInfo}) + '\n'),
+      );
+      writer.releaseLock();
+    } catch (e) {
+      lc.error?.('Failed to send wtCertInfo handshake', e);
+      session.close({closeCode: 500, reason: 'handshake failed'});
+      return;
+    }
+
     const transport = createWebTransportTransport(session, bidiStream);
     await handler(params, transport);
   }
@@ -221,7 +237,6 @@ export class WebTransportServer {
  */
 export async function generateWebTransportCertForPort(
   port: number,
-  certFile: string | undefined,
 ): Promise<{cert: string; privKey: string; certInfo: WtCertInfo}> {
   const attrs = [
     {name: 'commonName', value: 'zero-wt-dev'},
@@ -257,10 +272,6 @@ export async function generateWebTransportCertForPort(
     .toUpperCase();
 
   const certInfo: WtCertInfo = {fingerprint: sha256Fingerprint, port};
-
-  if (certFile) {
-    await writeFile(certFile, JSON.stringify(certInfo), 'utf8');
-  }
 
   return {cert, privKey, certInfo};
 }

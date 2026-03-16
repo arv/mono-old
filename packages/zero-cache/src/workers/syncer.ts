@@ -132,25 +132,14 @@ export class Syncer implements SingletonService {
 
     // Start the WebTransport server if configured (PoC).
     if (config.webTransportPort) {
-      void this.#startWebTransportServer(
-        lc,
-        config.webTransportPort,
-        config.webTransportCertFile,
-      );
+      void this.#startWebTransportServer(lc, config.webTransportPort);
     }
   }
 
-  async #startWebTransportServer(
-    lc: LogContext,
-    port: number,
-    certFileConfig: string | undefined,
-  ): Promise<void> {
+  async #startWebTransportServer(lc: LogContext, port: number): Promise<void> {
     try {
-      const certFile = certFileConfig ?? '/tmp/zero-wt-cert.json';
-      const {cert, privKey, certInfo} = await generateWebTransportCertForPort(
-        port,
-        certFile,
-      );
+      const {cert, privKey, certInfo} =
+        await generateWebTransportCertForPort(port);
 
       this.#lc.info?.(
         `WebTransport (PoC) cert fingerprint: ${certInfo.fingerprint}`,

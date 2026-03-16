@@ -3,7 +3,7 @@
  *
  * Wraps the browser's WebTransport API to present the same interface as a
  * browser WebSocket, allowing the Zero client to use WebTransport
- * transparently when `useWebTransport` is enabled.
+ * transparently when `webTransportPort` is set.
  *
  * ## Protocol differences from WebSocket
  *
@@ -16,9 +16,16 @@
  *
  * ## Certificate Validation
  *
- * For development with self-signed certificates, pass the SHA-256 fingerprint
- * bytes as `certHashBuffer`.  In production with a CA-signed certificate,
- * omit `certHashBuffer` and browsers will validate via normal TLS trust.
+ * The server sends `{wtCertInfo: {fingerprint, port}}` as the first
+ * server→client message on the stream.  This message is intercepted by
+ * `WebTransportSocket` (not forwarded to the application) and the supplied
+ * `onCertInfo` callback is invoked so the caller can cache the fingerprint
+ * for cert-pinning on subsequent reconnects.
+ *
+ * On the first (cold-start) connection `certHashBuffer` is omitted and the
+ * browser validates the server certificate via normal TLS trust.  For
+ * development with self-signed certificates, pass the SHA-256 fingerprint
+ * bytes from a previous session as `certHashBuffer`.
  */
 
 /** WebSocket-compatible ready state constants. */
@@ -58,14 +65,20 @@ export class WebTransportSocket {
   #abortController: AbortController | undefined;
 
   readonly #listeners = new Map<EventName, Set<AnyHandler>>();
+  readonly #onCertInfo: ((fingerprint: string) => void) | undefined;
 
   /** The WebTransport URL (mirrors WebSocket.url for compatibility). */
   readonly url: string;
   /** Always empty string — WebTransport has no subprotocol concept. */
   readonly protocol: string = '';
 
-  constructor(url: string, certHashBuffer?: ArrayBuffer | undefined) {
+  constructor(
+    url: string,
+    certHashBuffer?: ArrayBuffer | undefined,
+    onCertInfo?: ((fingerprint: string) => void) | undefined,
+  ) {
     this.url = url;
+    this.#onCertInfo = onCertInfo;
     performance.mark(WT_PERF_MARKS.connectStart);
     void this.#connect(url, certHashBuffer);
   }
@@ -173,6 +186,7 @@ export class WebTransportSocket {
     const reader = readable.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let certInfoReceived = false;
 
     try {
       while (true) {
@@ -187,9 +201,24 @@ export class WebTransportSocket {
         buffer = lines.pop() ?? '';
 
         for (const line of lines) {
-          if (line) {
-            this.#emit('message', {type: 'message', data: line});
+          if (!line) continue;
+          // The first server message is the WT-specific cert handshake.
+          // Intercept it and notify the caller; do not forward to the app.
+          if (!certInfoReceived) {
+            certInfoReceived = true;
+            try {
+              const msg = JSON.parse(line) as {
+                wtCertInfo?: {fingerprint: string; port: number} | undefined;
+              };
+              if (msg.wtCertInfo) {
+                this.#onCertInfo?.(msg.wtCertInfo.fingerprint);
+                continue;
+              }
+            } catch {
+              // Not JSON or unexpected format — fall through and emit normally.
+            }
           }
+          this.#emit('message', {type: 'message', data: line});
         }
       }
       // Flush any remaining bytes.
@@ -224,22 +253,4 @@ export class WebTransportSocket {
 export function fingerprintToHashBuffer(fingerprint: string): ArrayBuffer {
   const bytes = fingerprint.split(':').map(hex => parseInt(hex, 16));
   return new Uint8Array(bytes).buffer;
-}
-
-/**
- * Fetches WebTransport connection info from the server.
- *
- * Calls `GET <httpOrigin>/wt-cert` and returns `{fingerprint, port}`.
- * Returns `null` if WebTransport is not configured on the server.
- */
-export async function fetchWebTransportInfo(
-  httpOrigin: string,
-): Promise<{fingerprint: string; port: number} | null> {
-  try {
-    const resp = await fetch(`${httpOrigin}/wt-cert`);
-    if (!resp.ok) return null;
-    return (await resp.json()) as {fingerprint: string; port: number};
-  } catch {
-    return null;
-  }
 }
