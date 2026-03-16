@@ -1,7 +1,7 @@
 import type {LogContext, LogLevel} from '@rocicorp/logger';
 import {pipeline, Readable, Writable} from 'node:stream';
-import type {CloseEvent, Data, ErrorEvent} from 'ws';
-import WebSocket, {createWebSocketStream} from 'ws';
+import type {Data} from 'ws';
+import WebSocket from 'ws';
 import {assert} from '../../../shared/src/asserts.ts';
 import * as valita from '../../../shared/src/valita.ts';
 import type {ConnectedMessage} from '../../../zero-protocol/src/connect.ts';
@@ -25,6 +25,7 @@ import {
   type ProtocolError,
 } from '../../../zero-protocol/src/error.ts';
 import {ErrorOrigin} from '../../../zero-protocol/src/error-origin.ts';
+import type {Transport, TransportCloseEvent} from './transport.ts';
 
 export type HandlerResult =
   | {
@@ -70,9 +71,12 @@ const DOWNSTREAM_MSG_INTERVAL_MS = 6_000;
  * them to the correct service.
  *
  * Listens to the ViewSyncer and sends messages to the client.
+ *
+ * Transport-agnostic: works with both WebSocket and WebTransport
+ * via the {@link Transport} abstraction.
  */
 export class Connection {
-  readonly #ws: WebSocket;
+  readonly #transport: Transport;
   readonly #wsID: string;
   readonly #protocolVersion: number;
   readonly #lc: LogContext;
@@ -87,14 +91,14 @@ export class Connection {
   constructor(
     lc: LogContext,
     connectParams: ConnectParams,
-    ws: WebSocket,
+    transport: Transport,
     messageHandler: MessageHandler,
     onClose: () => void,
   ) {
     const {clientGroupID, clientID, wsID, protocolVersion} = connectParams;
     this.#messageHandler = messageHandler;
 
-    this.#ws = ws;
+    this.#transport = transport;
     this.#wsID = wsID;
     this.#protocolVersion = protocolVersion;
 
@@ -106,8 +110,8 @@ export class Connection {
     this.#lc.debug?.('new connection');
     this.#onClose = onClose;
 
-    this.#ws.addEventListener('close', this.#handleClose);
-    this.#ws.addEventListener('error', this.#handleError);
+    this.#transport.onClose(this.#handleClose);
+    this.#transport.onError(this.#handleError);
 
     this.#proxyInbound();
     this.#downstreamMsgTimer = setInterval(
@@ -154,15 +158,15 @@ export class Connection {
     }
     this.#closed = true;
     this.#lc.info?.(`closing connection: ${reason}`, ...args);
-    this.#ws.removeEventListener('close', this.#handleClose);
-    this.#ws.removeEventListener('error', this.#handleError);
+    this.#transport.offClose(this.#handleClose);
+    this.#transport.offError(this.#handleError);
     this.#viewSyncerOutboundStream?.cancel();
     this.#viewSyncerOutboundStream = undefined;
     this.#pusherOutboundStream?.cancel();
     this.#pusherOutboundStream = undefined;
     this.#onClose();
-    if (this.#ws.readyState !== this.#ws.CLOSED) {
-      this.#ws.close();
+    if (this.#transport.isOpen) {
+      this.#transport.close();
     }
     clearTimeout(this.#downstreamMsgTimer);
 
@@ -249,36 +253,36 @@ export class Connection {
     }
   }
 
-  #handleClose = (e: CloseEvent) => {
+  #handleClose = (e: TransportCloseEvent) => {
     const {code, reason, wasClean} = e;
-    this.close('WebSocket close event', {code, reason, wasClean});
+    this.close('transport close event', {code, reason, wasClean});
   };
 
-  #handleError = (e: ErrorEvent) => {
-    this.#lc.error?.('WebSocket error event', e.message, e.error);
+  #handleError = (e: {message: string; error: unknown}) => {
+    this.#lc.error?.('transport error event', e.message, e.error);
   };
 
   #proxyInbound() {
     pipeline(
-      createWebSocketStream(this.#ws),
+      this.#transport.messages,
       new Writable({
         write: (data, _encoding, callback) => {
           this.#handleMessage({data}).then(() => callback(), callback);
         },
       }),
       // The done callback is not used, as #handleClose and #handleError,
-      // configured on the underlying WebSocket, provide more complete
+      // configured on the underlying transport, provide more complete
       // information.
       () => {},
     );
   }
 
   #proxyOutbound(outboundStream: Source<Downstream>) {
-    // Note: createWebSocketStream() is avoided here in order to control
-    //       exception handling with #closeWithThrown(). If the Writable
-    //       from createWebSocketStream() were instead used, exceptions
-    //       from the outboundStream result in the Writable closing the
-    //       the websocket before the error message can be sent.
+    // Note: we use a custom Writable instead of createWebSocketStream() in
+    // order to control exception handling with #closeWithThrown(). If the
+    // Writable from createWebSocketStream() were instead used, exceptions
+    // from the outboundStream result in the Writable closing the connection
+    // before the error message can be sent.
     pipeline(
       Readable.from(outboundStream),
       new Writable({
@@ -322,11 +326,60 @@ export class Connection {
     callback: ((err?: Error | null) => void) | 'ignore-backpressure',
   ) {
     this.#lastDownstreamMsgTime = Date.now();
-    return send(this.#lc, this.#ws, data, callback);
+    if (this.#transport.isOpen) {
+      this.#transport.send(
+        JSON.stringify(data),
+        callback === 'ignore-backpressure' ? undefined : callback,
+      );
+    } else {
+      this.#lc.debug?.(`Dropping outbound message on transport (closed)`, {
+        dropped: data,
+      });
+      if (callback !== 'ignore-backpressure') {
+        callback(
+          new ProtocolErrorWithLevel(
+            {
+              kind: ErrorKind.Internal,
+              message: 'Transport closed',
+              origin: ErrorOrigin.ZeroCache,
+            },
+            'info',
+          ),
+        );
+      }
+    }
   }
 
   sendError(errorBody: ErrorBody, thrown?: unknown) {
-    sendError(this.#lc, this.#ws, errorBody, thrown);
+    this.#lc.withContext('errorKind', errorBody.kind);
+
+    let logLevel: LogLevel;
+
+    // If the thrown error is a ProtocolErrorWithLevel, its explicit logLevel takes precedence
+    if (thrown instanceof ProtocolErrorWithLevel) {
+      logLevel = thrown.logLevel;
+    }
+    // Errors with errno or transient socket codes are low-level, transient I/O issues
+    // (e.g., EPIPE, ECONNRESET) and should be warnings, not errors
+    else if (
+      hasErrno(thrown) ||
+      hasTransientSocketCode(thrown) ||
+      isTransientSocketMessage(errorBody.message)
+    ) {
+      logLevel = 'warn';
+    }
+    // Fallback: check errorBody.kind for errors that weren't thrown as ProtocolErrorWithLevel
+    else if (
+      errorBody.kind === ErrorKind.ClientNotFound ||
+      errorBody.kind === ErrorKind.TransformFailed
+    ) {
+      logLevel = 'warn';
+    } else {
+      logLevel = thrown ? getLogLevel(thrown) : 'info';
+    }
+
+    this.#lc[logLevel]?.('Sending error on transport', errorBody, thrown ?? '');
+    this.send(['error', errorBody], 'ignore-backpressure');
   }
 }
 
@@ -334,7 +387,8 @@ export type WebSocketLike = Pick<WebSocket, 'readyState'> & {
   send(data: string, cb?: (err?: Error) => void): void;
 };
 
-// Exported for testing purposes.
+// Exported for testing purposes and for pre-connection error sending (e.g. JWT
+// auth failures in syncer.ts that occur before a Connection is created).
 export function send(
   lc: LogContext,
   ws: WebSocketLike,

@@ -30,6 +30,7 @@
   "dependencies": {
     "@databases/sql": "^3.3.0",
     "@drdgvhbh/postgres-error-codes": "^0.0.6",
+    "@fails-components/webtransport": "^1.5.3",
     "@fastify/cors": "^10.0.0",
     "@fastify/websocket": "^11.0.0",
     "@google-cloud/precise-date": "^4.0.0",
@@ -61,6 +62,7 @@
     "parse-prometheus-text-format": "^1.1.1",
     "pg-format": "npm:pg-format-fix@^1.0.5",
     "postgres": "3.4.7",
+    "selfsigned": "^5.5.0",
     "tsx": "^4.19.1",
     "url-pattern": "^1.0.3",
     "urlpattern-polyfill": "^10.1.0",

@@ -31,6 +31,12 @@ import {installWebSocketReceiver} from '../types/websocket-handoff.ts';
 import type {ConnectParams} from './connect-params.ts';
 import {Connection, sendError} from './connection.ts';
 import {createNotifierFrom, subscribeTo} from './replicator.ts';
+import type {Transport} from './transport.ts';
+import {createWebSocketTransport} from './transport.ts';
+import {
+  generateWebTransportCertForPort,
+  WebTransportServer,
+} from './web-transport-server.ts';
 import {SyncerWsMessageHandler} from './syncer-ws-message-handler.ts';
 
 export type SyncerWorkerData = {
@@ -80,6 +86,7 @@ export class Syncer implements SingletonService {
   readonly #drainCoordinator = new DrainCoordinator();
   readonly #parent: Worker;
   readonly #wss: WebSocketServer;
+  #wtServer: WebTransportServer | undefined;
   readonly #stopped = resolver();
   readonly #config: ZeroConfig;
 
@@ -122,73 +129,179 @@ export class Syncer implements SingletonService {
     );
 
     setActiveClientGroupsGetter(() => this.#viewSyncers.size);
+
+    // Start the WebTransport server if configured (PoC).
+    if (config.webTransportPort) {
+      void this.#startWebTransportServer(
+        lc,
+        config.webTransportPort,
+        config.webTransportCertFile,
+      );
+    }
+  }
+
+  async #startWebTransportServer(
+    lc: LogContext,
+    port: number,
+    certFileConfig: string | undefined,
+  ): Promise<void> {
+    try {
+      const certFile = certFileConfig ?? '/tmp/zero-wt-cert.json';
+      const {cert, privKey, certInfo} = await generateWebTransportCertForPort(
+        port,
+        certFile,
+      );
+
+      this.#lc.info?.(
+        `WebTransport (PoC) cert fingerprint: ${certInfo.fingerprint}`,
+        {port},
+      );
+
+      const wtServer = new WebTransportServer(lc, certInfo, cert, privKey);
+      this.#wtServer = wtServer;
+      wtServer.start(this.#createWebTransportConnection);
+    } catch (e) {
+      lc.error?.('Failed to start WebTransport server', e);
+    }
   }
 
   readonly #createConnection = async (ws: WebSocket, params: ConnectParams) => {
+    // Verify JWT BEFORE touching existing connections - prevents unauthenticated
+    // attackers from force-disconnecting legitimate users via DoS
+    const {auth, userID, clientID} = params;
+    if (auth) {
+      const jwtResult = await this.#verifyJWT(auth, userID);
+      if (!jwtResult.ok) {
+        sendError(
+          this.#lc,
+          ws,
+          {
+            kind: ErrorKind.AuthInvalidated,
+            message: jwtResult.error,
+            origin: ErrorOrigin.ZeroCache,
+          },
+          jwtResult.thrown,
+        );
+        ws.close(3000, 'Failed to decode JWT');
+        return;
+      }
+      await this.#createConnectionWithTransport(
+        params,
+        createWebSocketTransport(ws),
+        jwtResult.decodedToken,
+      );
+    } else {
+      this.#lc.debug?.(`No auth token received for clientID ${clientID}`);
+      await this.#createConnectionWithTransport(
+        params,
+        createWebSocketTransport(ws),
+        undefined,
+      );
+    }
+  };
+
+  /**
+   * WebTransport connection handler – called by the WebTransportServer when a
+   * new QUIC session arrives.
+   */
+  readonly #createWebTransportConnection = async (
+    params: ConnectParams,
+    transport: Transport,
+  ): Promise<void> => {
+    const {auth, userID, clientID} = params;
+    if (auth) {
+      const jwtResult = await this.#verifyJWT(auth, userID);
+      if (!jwtResult.ok) {
+        // For WebTransport we can't send an error the same way as WebSocket
+        // (no pre-connection WebSocket object), so just close the transport.
+        transport.close();
+        this.#lc.warn?.(
+          `WebTransport: JWT verification failed for ${clientID}: ${jwtResult.error}`,
+        );
+        return;
+      }
+      await this.#createConnectionWithTransport(
+        params,
+        transport,
+        jwtResult.decodedToken,
+      );
+    } else {
+      this.#lc.debug?.(`WebTransport: no auth token for clientID ${clientID}`);
+      await this.#createConnectionWithTransport(params, transport, undefined);
+    }
+  };
+
+  /**
+   * Verifies a JWT and returns the decoded payload or an error.
+   */
+  async #verifyJWT(
+    auth: string,
+    userID: string,
+  ): Promise<
+    | {ok: true; decodedToken: JWTPayload | undefined}
+    | {ok: false; error: string; thrown: unknown}
+  > {
+    const tokenOptions = tokenConfigOptions(this.#config.auth);
+
+    const hasPushOrMutate =
+      this.#config?.push?.url !== undefined ||
+      this.#config?.mutate?.url !== undefined;
+    const hasQueries =
+      this.#config?.query?.url !== undefined ||
+      this.#config?.getQueries?.url !== undefined;
+
+    // must either have one of the token options set or have custom mutations & queries enabled
+    const hasExactlyOneTokenOption = tokenOptions.length === 1;
+    const hasCustomEndpoints = hasPushOrMutate && hasQueries;
+    if (!hasExactlyOneTokenOption && !hasCustomEndpoints) {
+      throw new Error(
+        'Exactly one of jwk, secret, or jwksUrl must be set in order to verify tokens but actually the following were set: ' +
+          JSON.stringify(tokenOptions) +
+          '. You may also set both ZERO_MUTATE_URL and ZERO_QUERY_URL to enable custom mutations and queries without passing token verification options.',
+      );
+    }
+
+    if (tokenOptions.length > 0) {
+      try {
+        const decodedToken = await verifyToken(this.#config.auth, auth, {
+          subject: userID,
+          ...(this.#config.auth.issuer && {
+            issuer: this.#config.auth.issuer,
+          }),
+          ...(this.#config.auth.audience && {
+            audience: this.#config.auth.audience,
+          }),
+        });
+        this.#lc.debug?.(`Received auth token [redacted...${auth.slice(-8)}]`);
+        return {ok: true, decodedToken};
+      } catch (e) {
+        return {
+          ok: false,
+          error: `Failed to decode auth token: ${String(e)}`,
+          thrown: e,
+        };
+      }
+    }
+
+    return {ok: true, decodedToken: undefined};
+  }
+
+  /**
+   * Shared logic for creating a Connection from any transport (WebSocket or
+   * WebTransport).
+   */
+  async #createConnectionWithTransport(
+    params: ConnectParams,
+    transport: Transport,
+    decodedToken: JWTPayload | undefined,
+  ): Promise<void> {
     this.#lc.debug?.(
       'creating connection',
       params.clientGroupID,
       params.clientID,
     );
     recordConnectionAttempted();
-    const {clientID, clientGroupID, auth, userID} = params;
-
-    // Verify JWT BEFORE touching existing connections - prevents unauthenticated
-    // attackers from force-disconnecting legitimate users via DoS
-    let decodedToken: JWTPayload | undefined;
-    if (auth) {
-      const tokenOptions = tokenConfigOptions(this.#config.auth);
-
-      const hasPushOrMutate =
-        this.#config?.push?.url !== undefined ||
-        this.#config?.mutate?.url !== undefined;
-      const hasQueries =
-        this.#config?.query?.url !== undefined ||
-        this.#config?.getQueries?.url !== undefined;
-
-      // must either have one of the token options set or have custom mutations & queries enabled
-      const hasExactlyOneTokenOption = tokenOptions.length === 1;
-      const hasCustomEndpoints = hasPushOrMutate && hasQueries;
-      if (!hasExactlyOneTokenOption && !hasCustomEndpoints) {
-        throw new Error(
-          'Exactly one of jwk, secret, or jwksUrl must be set in order to verify tokens but actually the following were set: ' +
-            JSON.stringify(tokenOptions) +
-            '. You may also set both ZERO_MUTATE_URL and ZERO_QUERY_URL to enable custom mutations and queries without passing token verification options.',
-        );
-      }
-
-      if (tokenOptions.length > 0) {
-        try {
-          decodedToken = await verifyToken(this.#config.auth, auth, {
-            subject: userID,
-            ...(this.#config.auth.issuer && {
-              issuer: this.#config.auth.issuer,
-            }),
-            ...(this.#config.auth.audience && {
-              audience: this.#config.auth.audience,
-            }),
-          });
-          this.#lc.debug?.(
-            `Received auth token [redacted...${auth.slice(-8)}] for clientID ${clientID}`,
-          );
-        } catch (e) {
-          sendError(
-            this.#lc,
-            ws,
-            {
-              kind: ErrorKind.AuthInvalidated,
-              message: `Failed to decode auth token: ${String(e)}`,
-              origin: ErrorOrigin.ZeroCache,
-            },
-            e,
-          );
-          ws.close(3000, 'Failed to decode JWT');
-          return;
-        }
-      }
-    } else {
-      this.#lc.debug?.(`No auth token received for clientID ${clientID}`);
-    }
+    const {clientID, clientGroupID, auth} = params;
 
     // Only check for and close existing connections AFTER auth is validated
     const existing = this.#connections.get(clientID);
@@ -210,7 +323,7 @@ export class Syncer implements SingletonService {
       connection = new Connection(
         this.#lc,
         params,
-        ws,
+        transport,
         new SyncerWsMessageHandler(
           this.#lc,
           params,
@@ -254,7 +367,7 @@ export class Syncer implements SingletonService {
         JSON.stringify(params.initConnectionMsg),
       );
     }
-  };
+  }
 
   run() {
     return this.#stopped.promise;
@@ -289,6 +402,7 @@ export class Syncer implements SingletonService {
 
   stop() {
     this.#wss.close();
+    this.#wtServer?.stop();
     this.#stopped.resolve();
     return promiseVoid;
   }

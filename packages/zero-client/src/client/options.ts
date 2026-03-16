@@ -319,6 +319,22 @@ export interface ZeroOptions<
    */
   // TODO(arv): Mutators should also get context.
   context?: C | undefined;
+
+  /**
+   * (PoC) Use WebTransport (HTTP/3 + QUIC) instead of WebSocket for the sync
+   * connection.
+   *
+   * Requires `ZERO_WT_PORT` to be set on the server.  The client automatically
+   * fetches the server's TLS certificate fingerprint from `GET <server>/wt-cert`
+   * before connecting, so no additional client-side configuration is needed for
+   * development with self-signed certificates.
+   *
+   * **This is a proof-of-concept feature.** It is not recommended for
+   * production use without further hardening.
+   *
+   * Default: `false`
+   */
+  useWebTransport?: boolean | undefined;
 }
 
 /**

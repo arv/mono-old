@@ -666,6 +666,34 @@ export const zeroOptions = {
     ],
   },
 
+  // ---------------------------------------------------------------------------
+  // WebTransport PoC options
+  // ---------------------------------------------------------------------------
+  webTransportPort: {
+    type: v.number().optional(),
+    desc: [
+      '(PoC) Port for the WebTransport (HTTP/3 + QUIC) server.',
+      '',
+      'When set, each syncer worker starts an Http3Server on this port.',
+      'Recommended only with ZERO_NUM_SYNC_WORKERS=1 for this proof-of-concept.',
+      '',
+      'The TLS certificate fingerprint required by connecting clients is served',
+      'at GET /wt-cert on the main HTTP server.',
+    ],
+  },
+
+  webTransportCertFile: {
+    type: v.string().optional(),
+    desc: [
+      '(PoC) Path for the WebTransport TLS certificate info file.',
+      '',
+      'The syncer writes a JSON file with {fingerprint, port} to this path on',
+      'startup so the HTTP server can serve it at GET /wt-cert.',
+      '',
+      'Defaults to /tmp/zero-wt-cert.json when webTransportPort is set.',
+    ],
+  },
+
   litestream: {
     executable: {
       type: v.string().optional(),
