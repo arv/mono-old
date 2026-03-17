@@ -1,9 +1,4 @@
 import {compareUTF8} from 'compare-utf8';
-import {
-  assertBoolean,
-  assertNumber,
-  assertString,
-} from '../../../shared/src/asserts.ts';
 import type {Ordering} from '../../../zero-protocol/src/ast.ts';
 import type {Row, Value} from '../../../zero-protocol/src/data.ts';
 import type {Stream} from './stream.ts';
@@ -51,15 +46,28 @@ export function compareValues(a: Value, b: Value): number {
     return 1;
   }
   if (typeof a === 'boolean') {
-    assertBoolean(b);
+    // Inline the type check instead of calling assertBoolean(b). V8 can use
+    // the typeof guard to narrow b to boolean for the return expression,
+    // avoiding an opaque call-site that would require a separate stack frame.
+    if (typeof b !== 'boolean') {
+      throw new Error(`Invalid type ${JSON.stringify(b)}, expected boolean`);
+    }
     return a ? 1 : -1;
   }
   if (typeof a === 'number') {
-    assertNumber(b);
+    // Same reasoning: inline the assert so V8 can prove both operands are
+    // numbers and emit a single subtract instruction with no hidden-class
+    // or call-site overhead.
+    if (typeof b !== 'number') {
+      throw new Error(`Invalid type ${JSON.stringify(b)}, expected number`);
+    }
     return a - b;
   }
   if (typeof a === 'string') {
-    assertString(b);
+    // Same reasoning as above.
+    if (typeof b !== 'string') {
+      throw new Error(`Invalid type ${JSON.stringify(b)}, expected string`);
+    }
     // We compare all strings in Zero as UTF-8. This is the default on SQLite
     // and we need to match it. See:
     // https://blog.replicache.dev/blog/replicache-11-adventures-in-text-encoding.
