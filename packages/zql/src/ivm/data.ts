@@ -35,8 +35,11 @@ export type Node = {
  * @returns < 0 if a < b, 0 if a === b, > 0 if a > b
  */
 export function compareValues(a: Value, b: Value): number {
-  a = normalizeUndefined(a);
-  b = normalizeUndefined(b);
+  // Inline normalizeUndefined to avoid an extra function call on every
+  // comparison. This is hot code called from makeComparator which runs on
+  // every row fetch/push.
+  if (a === undefined) a = null;
+  if (b === undefined) b = null;
 
   if (a === b) {
     return 0;

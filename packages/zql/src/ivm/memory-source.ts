@@ -17,7 +17,7 @@ import {
   type NoSubqueryCondition,
 } from '../builder/filter.ts';
 import {assertOrderingIncludesPK} from '../query/complete-ordering.ts';
-import type {Change} from './change.ts';
+import type {AddChange, EditChange, RemoveChange} from './change.ts';
 import {
   constraintMatchesPrimaryKey,
   constraintMatchesRow,
@@ -368,14 +368,30 @@ export class MemorySource implements Source {
     const exists = (row: Row) => data.has(row);
     const setOverlay = (o: Overlay | undefined) => (this.#overlay = o);
     const writeChange = (c: SourceChange) => this.#writeChange(c);
-    yield* genPushAndWriteWithSplitEdit(
-      this.#connections,
-      change,
-      exists,
-      setOverlay,
-      writeChange,
-      () => ++this.#pushEpoch,
-    );
+    // Dispatch edit vs add/remove before calling into the shared utilities so
+    // that genPushAndWriteWithSplitEdit is always called with an edit change.
+    // This keeps the call site monomorphic for V8 and avoids the wrong-map
+    // deopt that occurs when add/remove and edit changes (different object
+    // shapes) flow through the same call site.
+    if (change.type === 'edit') {
+      yield* genPushAndWriteWithSplitEdit(
+        this.#connections,
+        change,
+        exists,
+        setOverlay,
+        writeChange,
+        () => ++this.#pushEpoch,
+      );
+    } else {
+      yield* genPushAndWrite(
+        this.#connections,
+        change,
+        exists,
+        setOverlay,
+        writeChange,
+        ++this.#pushEpoch,
+      );
+    }
   }
 
   #writeChange(change: SourceChange) {
@@ -497,7 +513,7 @@ export function* genPushAndWriteWithSplitEdit(
   }
 }
 
-function* genPushAndWrite(
+export function* genPushAndWrite(
   connections: readonly Connection[],
   change: SourceChangeAdd | SourceChangeRemove | SourceChangeEdit,
   exists: (row: Row) => boolean,
@@ -535,33 +551,46 @@ function* genPush(
       unreachable(change);
   }
 
-  for (const conn of connections) {
-    const {output, filters, input} = conn;
-    if (output) {
-      conn.lastPushedEpoch = pushEpoch;
-      setOverlay({epoch: pushEpoch, change});
-      const outputChange: Change =
-        change.type === 'edit'
-          ? {
-              type: change.type,
-              oldNode: {
-                row: change.oldRow,
-                relationships: {},
-              },
-              node: {
-                row: change.row,
-                relationships: {},
-              },
-            }
-          : {
-              type: change.type,
-              node: {
-                row: change.row,
-                relationships: {},
-              },
-            };
-      yield* filterPush(outputChange, output, input, filters?.predicate);
-      yield undefined;
+  // Split edit vs add/remove into separate loops so each loop body only ever
+  // creates one object shape. This keeps the outputChange object monomorphic
+  // and lets V8 avoid polymorphic IC bailouts in filterPush.
+  if (change.type === 'edit') {
+    for (const conn of connections) {
+      const {output, filters, input} = conn;
+      if (output) {
+        conn.lastPushedEpoch = pushEpoch;
+        setOverlay({epoch: pushEpoch, change});
+        const outputChange: EditChange = {
+          type: 'edit',
+          oldNode: {
+            row: change.oldRow,
+            relationships: {},
+          },
+          node: {
+            row: change.row,
+            relationships: {},
+          },
+        };
+        yield* filterPush(outputChange, output, input, filters?.predicate);
+        yield undefined;
+      }
+    }
+  } else {
+    for (const conn of connections) {
+      const {output, filters, input} = conn;
+      if (output) {
+        conn.lastPushedEpoch = pushEpoch;
+        setOverlay({epoch: pushEpoch, change});
+        const outputChange: AddChange | RemoveChange = {
+          type: change.type,
+          node: {
+            row: change.row,
+            relationships: {},
+          },
+        };
+        yield* filterPush(outputChange, output, input, filters?.predicate);
+        yield undefined;
+      }
     }
   }
 
@@ -808,9 +837,13 @@ function* generateRows(
   scanStart: RowBound | undefined,
   reverse: boolean | undefined,
 ) {
-  yield* data[reverse ? 'valuesFromReversed' : 'valuesFrom'](
-    scanStart as Row | undefined,
-  );
+  // Use explicit if/else rather than a computed property name so V8 can
+  // specialize each branch as a direct (non-megamorphic) method call.
+  if (reverse) {
+    yield* data.valuesFromReversed(scanStart as Row | undefined);
+  } else {
+    yield* data.valuesFrom(scanStart as Row | undefined);
+  }
 }
 
 export function stringify(change: SourceChange) {

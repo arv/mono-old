@@ -22,6 +22,7 @@ import {makeComparator, type Node} from '../../zql/src/ivm/data.ts';
 import {
   generateWithOverlay,
   generateWithStart,
+  genPushAndWrite,
   genPushAndWriteWithSplitEdit,
   type Connection,
   type Overlay,
@@ -378,14 +379,30 @@ export class TableSource implements Source {
     const setOverlay = (o: Overlay | undefined) => (this.#overlay = o);
     const writeChange = (c: SourceChange) => this.#writeChange(c);
 
-    yield* genPushAndWriteWithSplitEdit(
-      this.#connections,
-      change,
-      exists,
-      setOverlay,
-      writeChange,
-      () => ++this.#pushEpoch,
-    );
+    // Dispatch edit vs add/remove before calling into the shared utilities so
+    // that genPushAndWriteWithSplitEdit is always called with an edit change.
+    // This keeps the call site monomorphic for V8 and avoids the wrong-map
+    // deopt that occurs when add/remove and edit changes (different object
+    // shapes) flow through the same call site.
+    if (change.type === 'edit') {
+      yield* genPushAndWriteWithSplitEdit(
+        this.#connections,
+        change,
+        exists,
+        setOverlay,
+        writeChange,
+        () => ++this.#pushEpoch,
+      );
+    } else {
+      yield* genPushAndWrite(
+        this.#connections,
+        change,
+        exists,
+        setOverlay,
+        writeChange,
+        ++this.#pushEpoch,
+      );
+    }
   }
 
   #writeChange(change: SourceChange) {
