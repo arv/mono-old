@@ -31,7 +31,7 @@ import {
   type Comparator,
   type Node,
 } from './data.ts';
-import {filterPush} from './filter-push.ts';
+import {filterPushAddOrRemove, filterPushEdit} from './filter-push.ts';
 import {
   skipYields,
   type FetchRequest,
@@ -521,76 +521,102 @@ export function* genPushAndWrite(
   writeChange: (c: SourceChange) => void,
   pushEpoch: number,
 ) {
-  for (const x of genPush(connections, change, exists, setOverlay, pushEpoch)) {
-    yield x;
+  // Dispatch before entering the inner generator so each specialized function
+  // only ever sees one SourceChange shape. This keeps V8's ICs monomorphic at
+  // every property access inside genPushAddOrRemove / genPushEdit.
+  if (change.type === 'edit') {
+    yield* genPushEdit(connections, change, exists, setOverlay, pushEpoch);
+  } else {
+    yield* genPushAddOrRemove(
+      connections,
+      change,
+      exists,
+      setOverlay,
+      pushEpoch,
+    );
   }
   writeChange(change);
 }
 
-function* genPush(
+/**
+ * Push path for add/remove SourceChanges.
+ * Only called with `{type, row}` shaped objects so V8 can compile
+ * a monomorphic IC for every property access.
+ */
+function* genPushAddOrRemove(
   connections: readonly Connection[],
-  change: SourceChange,
+  change: SourceChangeAdd | SourceChangeRemove,
   exists: (row: Row) => boolean,
   setOverlay: (o: Overlay | undefined) => void,
   pushEpoch: number,
 ) {
-  switch (change.type) {
-    case 'add':
-      assert(
-        !exists(change.row),
-        () => `Row already exists ${stringify(change)}`,
-      );
-      break;
-    case 'remove':
-      assert(exists(change.row), () => `Row not found ${stringify(change)}`);
-      break;
-    case 'edit':
-      assert(exists(change.oldRow), () => `Row not found ${stringify(change)}`);
-      break;
-    default:
-      unreachable(change);
+  if (change.type === 'add') {
+    assert(
+      !exists(change.row),
+      () => `Row already exists ${stringify(change)}`,
+    );
+  } else {
+    assert(exists(change.row), () => `Row not found ${stringify(change)}`);
   }
 
-  // Split edit vs add/remove into separate loops so each loop body only ever
-  // creates one object shape. This keeps the outputChange object monomorphic
-  // and lets V8 avoid polymorphic IC bailouts in filterPush.
-  if (change.type === 'edit') {
-    for (const conn of connections) {
-      const {output, filters, input} = conn;
-      if (output) {
-        conn.lastPushedEpoch = pushEpoch;
-        setOverlay({epoch: pushEpoch, change});
-        const outputChange: EditChange = {
-          type: 'edit',
-          oldNode: {
-            row: change.oldRow,
-            relationships: {},
-          },
-          node: {
-            row: change.row,
-            relationships: {},
-          },
-        };
-        yield* filterPush(outputChange, output, input, filters?.predicate);
-        yield undefined;
-      }
+  for (const conn of connections) {
+    const {output, filters, input} = conn;
+    if (output) {
+      conn.lastPushedEpoch = pushEpoch;
+      setOverlay({epoch: pushEpoch, change});
+      const outputChange: AddChange | RemoveChange = {
+        type: change.type,
+        node: {
+          row: change.row,
+          relationships: {},
+        },
+      };
+      yield* filterPushAddOrRemove(
+        outputChange,
+        output,
+        input,
+        filters?.predicate,
+      );
+      yield undefined;
     }
-  } else {
-    for (const conn of connections) {
-      const {output, filters, input} = conn;
-      if (output) {
-        conn.lastPushedEpoch = pushEpoch;
-        setOverlay({epoch: pushEpoch, change});
-        const outputChange: AddChange | RemoveChange = {
-          type: change.type,
-          node: {
-            row: change.row,
-            relationships: {},
-          },
-        };
-        yield* filterPush(outputChange, output, input, filters?.predicate);
-        yield undefined;
-      }
+  }
+
+  setOverlay(undefined);
+}
+
+/**
+ * Push path for edit SourceChanges.
+ * Only called with `{type, row, oldRow}` shaped objects so V8 can compile
+ * a monomorphic IC for every property access, avoiding the "wrong map" deopt
+ * that occurs when this code shares a function with add/remove changes.
+ */
+function* genPushEdit(
+  connections: readonly Connection[],
+  change: SourceChangeEdit,
+  exists: (row: Row) => boolean,
+  setOverlay: (o: Overlay | undefined) => void,
+  pushEpoch: number,
+) {
+  assert(exists(change.oldRow), () => `Row not found ${stringify(change)}`);
+
+  for (const conn of connections) {
+    const {output, filters, input} = conn;
+    if (output) {
+      conn.lastPushedEpoch = pushEpoch;
+      setOverlay({epoch: pushEpoch, change});
+      const outputChange: EditChange = {
+        type: 'edit',
+        oldNode: {
+          row: change.oldRow,
+          relationships: {},
+        },
+        node: {
+          row: change.row,
+          relationships: {},
+        },
+      };
+      yield* filterPushEdit(outputChange, output, input, filters?.predicate);
+      yield undefined;
     }
   }
 
