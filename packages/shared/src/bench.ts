@@ -69,17 +69,18 @@ declare module 'mitata' {
     benchmarks: Benchmark[];
   };
 
+  type Format =
+    | 'mitata'
+    | 'quiet'
+    | 'json'
+    | 'markdown'
+    | {json: {samples?: boolean | undefined; debug?: boolean | undefined}};
+
   type RunOptions = {
     throw?: boolean | undefined;
     filter?: RegExp | undefined;
     colors?: boolean | undefined;
-    format?:
-      | 'mitata'
-      | 'quiet'
-      | 'json'
-      | 'markdown'
-      | {json: {samples?: boolean | undefined; debug?: boolean | undefined}}
-      | undefined;
+    format?: Format | undefined;
   };
 
   export function bench(name: string, fn: BenchFn): unknown;
@@ -88,6 +89,7 @@ declare module 'mitata' {
   export function group(name: string | (() => void), fn?: () => void): void;
 }
 
+import type {Benchmark} from 'mitata';
 import {
   bench as mitataBench,
   run as mitataRun,
@@ -129,26 +131,13 @@ type BenchFn = Parameters<typeof mitataBench>[1];
 
 function extractResult(
   name: string,
-  benchmarks: ReturnType<typeof mitataBench>[],
+  benchmarks: Benchmark[],
   context: {cpu: {freq: number}},
 ): BenchResult {
   // mitata returns the Benchmark objects directly in the benchmarks array
-  const bm = (
-    benchmarks as Array<{
-      alias: string;
-      runs: Array<{
-        name: string;
-        stats?: {
-          min: number;
-          max: number;
-          avg: number;
-          p75: number;
-          p99: number;
-        };
-        error?: Error;
-      }>;
-    }>
-  ).find(b => b.alias === name || b.runs[0]?.name === name);
+  const bm = (benchmarks as Benchmark[]).find(
+    b => b.alias === name || b.runs[0]?.name === name,
+  );
 
   if (!bm) {
     throw new Error(`Benchmark "${name}" not found in results`);
@@ -220,7 +209,7 @@ export async function bench(name: string, fn: BenchFn): Promise<BenchResult> {
 
   return extractResult(
     name,
-    benchmarks as ReturnType<typeof mitataBench>[],
+    benchmarks as Benchmark[],
     context,
   );
 }
@@ -297,7 +286,7 @@ export async function benchSummary(
   for (const name of names) {
     results[name] = extractResult(
       name,
-      benchmarks as ReturnType<typeof mitataBench>[],
+      benchmarks as Benchmark[],
       context,
     );
   }
