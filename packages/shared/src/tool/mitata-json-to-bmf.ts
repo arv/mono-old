@@ -30,32 +30,36 @@ type MitataStats = {
   min: number;
   max: number;
   avg: number;
-  p50?: number;
-  p75?: number;
-  p99?: number;
+  p50?: number | undefined;
+  p75?: number | undefined;
+  p99?: number | undefined;
 };
 
 // Mitata JSON output format (with samples: false, debug: false)
-interface MitataBenchmark {
-  name?: string;
-  alias?: string;
-  stats?: MitataStats;
-  runs?: Array<{
-    stats: MitataStats;
-  }>;
-}
+type MitataBenchmark = {
+  name?: string | undefined;
+  alias?: string | undefined;
+  stats?: MitataStats | undefined;
+  runs?:
+    | Array<{
+        stats: MitataStats;
+      }>
+    | undefined;
+};
 
-interface MitataContext {
-  cpu?: {
-    /** Measured CPU frequency in GHz (1 / noop_avg_ns from calibration) */
-    freq?: number;
-  };
-}
+type MitataContext = {
+  cpu?:
+    | {
+        /** Measured CPU frequency in GHz (1 / noop_avg_ns from calibration) */
+        freq?: number | undefined;
+      }
+    | undefined;
+};
 
-interface MitataJsonOutput {
+type MitataJsonOutput = {
   benchmarks: MitataBenchmark[];
-  context?: MitataContext;
-}
+  context?: MitataContext | undefined;
+};
 
 function getStats(benchmark: MitataBenchmark): MitataStats | undefined {
   return benchmark.stats ?? benchmark.runs?.[0]?.stats;

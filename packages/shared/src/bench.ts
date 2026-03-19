@@ -12,84 +12,7 @@
  * - CPU calibration via mitata's built-in noop measurement
  */
 
-// mitata ships as pure .mjs with no type declarations — declare what we use.
-declare module 'mitata' {
-  type BenchFn =
-    | (() => void)
-    | (() => Promise<void>)
-    | (() => Generator<() => void | Promise<void>>)
-    | (() => AsyncGenerator<() => void | Promise<void>>);
-
-  type Stats = {
-    min: number;
-    max: number;
-    avg: number;
-    p50: number;
-    p75: number;
-    p99: number;
-    p999: number;
-    samples: number[];
-  };
-
-  type BenchmarkRun = {
-    name: string;
-    args: Record<string, unknown>;
-    stats?: Stats | undefined;
-    error?: Error | undefined;
-  };
-
-  type Benchmark = {
-    alias: string;
-    kind: string;
-    group: number;
-    baseline: boolean;
-    runs: BenchmarkRun[];
-  };
-
-  type RunContext = {
-    now: number;
-    arch: string | null;
-    version: string | null;
-    runtime: string | null;
-    cpu: {
-      /** CPU model name */
-      name: string | null;
-      /**
-       * Measured CPU frequency in GHz, derived from a calibration noop:
-       * freq = 1 / noop_avg_ns. More stable than os.cpus()[0].speed
-       * since it reflects actual execution speed rather than nominal speed.
-       */
-      freq: number;
-    };
-  };
-
-  type RunResult = {
-    layout: Array<{name: string | null; types: string[]}>;
-    context: RunContext;
-    benchmarks: Benchmark[];
-  };
-
-  type Format =
-    | 'mitata'
-    | 'quiet'
-    | 'json'
-    | 'markdown'
-    | {json: {samples?: boolean | undefined; debug?: boolean | undefined}};
-
-  type RunOptions = {
-    throw?: boolean | undefined;
-    filter?: RegExp | undefined;
-    colors?: boolean | undefined;
-    format?: Format | undefined;
-  };
-
-  export function bench(name: string, fn: BenchFn): unknown;
-  export function run(opts?: RunOptions): Promise<RunResult>;
-  export function summary(fn: () => void): void;
-  export function group(name: string | (() => void), fn?: () => void): void;
-}
-
-import type {Benchmark} from 'mitata';
+import type {ctx, trial} from 'mitata';
 import {
   bench as mitataBench,
   run as mitataRun,
@@ -131,13 +54,10 @@ type BenchFn = Parameters<typeof mitataBench>[1];
 
 function extractResult(
   name: string,
-  benchmarks: Benchmark[],
-  context: {cpu: {freq: number}},
+  benchmarks: trial[],
+  context: ctx,
 ): BenchResult {
-  // mitata returns the Benchmark objects directly in the benchmarks array
-  const bm = (benchmarks as Benchmark[]).find(
-    b => b.alias === name || b.runs[0]?.name === name,
-  );
+  const bm = benchmarks.find(b => b.alias === name || b.runs[0]?.name === name);
 
   if (!bm) {
     throw new Error(`Benchmark "${name}" not found in results`);
@@ -207,11 +127,7 @@ export async function bench(name: string, fn: BenchFn): Promise<BenchResult> {
       : {format: 'quiet'},
   );
 
-  return extractResult(
-    name,
-    benchmarks as Benchmark[],
-    context,
-  );
+  return extractResult(name, benchmarks, context);
 }
 
 /**
@@ -284,11 +200,7 @@ export async function benchSummary(
 
   const results: Record<string, BenchResult> = {};
   for (const name of names) {
-    results[name] = extractResult(
-      name,
-      benchmarks as Benchmark[],
-      context,
-    );
+    results[name] = extractResult(name, benchmarks, context);
   }
   return results;
 }

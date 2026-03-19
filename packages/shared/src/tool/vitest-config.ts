@@ -43,6 +43,7 @@ export default defineConfig({
     },
     include: ['src/**/*.{test,spec}{,.node}.?(c|m)[jt]s?(x)'],
     excludeTags: RUN_BENCHMARKS ? [] : ['bench'],
+    disableConsoleIntercept: RUN_BENCHMARKS,
     silent: 'passed-only',
     browser: {
       enabled: true,
