@@ -19,7 +19,7 @@
  */
 
 import {beforeAll, expect, test} from 'vitest';
-import {bench} from '../../shared/src/bench.ts';
+import {bench, benchSummary} from '../../shared/src/bench.ts';
 import {getChinook} from '../../zql-integration-tests/src/chinook/get-deps.ts';
 import {schema} from '../../zql-integration-tests/src/chinook/schema.ts';
 import {
@@ -63,31 +63,8 @@ beforeAll(async () => {
 // one iteration doesn't affect the next. Contrast with the old pattern
 // in benchHydration() which used a plain async fn with no teardown.
 
-test('zql: album scan', async () => {
-  const result = await bench('zql: album scan', function* () {
-    const view = delegates.memory.materialize(albumQuery); // setup, not timed
-    yield () => {
-      void view.data; // timed
-    };
-    view.destroy(); // teardown, not timed
-  });
-
-  expect(result.throughput).toBeGreaterThan(0);
-});
-
-test('zqlite: album scan', async () => {
-  const result = await bench('zqlite: album scan', function* () {
-    const view = delegates.sqlite.materialize(albumQuery); // setup, not timed
-    yield () => {
-      void view.data; // timed
-    };
-    view.destroy(); // teardown, not timed
-  });
-
-  expect(result.throughput).toBeGreaterThan(0);
-});
-
-test('zql: all playlists', async () => {
+// Use bench() when you have a single implementation to time.
+test('zql: all playlists (single)', async () => {
   const result = await bench('zql: all playlists', function* () {
     const view = delegates.memory.materialize(playlistWithRelationsQuery); // setup, not timed
     yield () => {
@@ -99,4 +76,38 @@ test('zql: all playlists', async () => {
   // With BENCH_CPU_REF_GHZ set, result.throughput is already normalized
   // to the reference CPU frequency for cross-machine comparability.
   expect(result.throughput).toBeGreaterThan(0);
+});
+
+// Use benchSummary() when comparing multiple implementations.
+// mitata prints a relative comparison table to stdout, e.g.:
+//
+//   • album scan
+//   benchmark            avg (min … max)   p75        p99
+//   ─────────────────────────────────────────────────────
+//   zql: album scan      1.23 µs/iter      1.31 µs    1.89 µs
+//   zqlite: album scan   4.56 µs/iter      4.78 µs    5.12 µs
+//   summary
+//   zql is 3.7x faster than zqlite
+//
+// Requires --disable-console-intercept when running via `vitest run`.
+test('album scan (summary)', async () => {
+  const results = await benchSummary('album scan', {
+    'zql: album scan': function* () {
+      const view = delegates.memory.materialize(albumQuery); // setup, not timed
+      yield () => {
+        void view.data; // timed
+      };
+      view.destroy(); // teardown, not timed
+    },
+    'zqlite: album scan': function* () {
+      const view = delegates.sqlite.materialize(albumQuery); // setup, not timed
+      yield () => {
+        void view.data; // timed
+      };
+      view.destroy(); // teardown, not timed
+    },
+  });
+
+  expect(results['zql: album scan'].throughput).toBeGreaterThan(0);
+  expect(results['zqlite: album scan'].throughput).toBeGreaterThan(0);
 });
