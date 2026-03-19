@@ -10,8 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:update": "vitest run -u",
-    "bench": "vitest bench --run",
-    "bench:watch": "vitest bench --watch",
+    "bench": "RUN_BENCHMARKS=1 vitest run --disable-console-intercept",
+    "bench:bmf": "BENCH_OUTPUT_FORMAT=json npm run bench 2>&1 | npx tsx ../shared/src/tool/mitata-json-to-bmf.ts",
     "check-types": "tsc",
     "check-types:watch": "tsc --watch"
   },

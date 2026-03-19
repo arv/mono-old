@@ -3,6 +3,9 @@ import {defineConfig} from 'vitest/config';
 import {makeDefine} from '../build.ts';
 
 export const CI = process.env['CI'] === 'true' || process.env['CI'] === '1';
+const RUN_BENCHMARKS =
+  process.env['RUN_BENCHMARKS'] === 'true' ||
+  process.env['RUN_BENCHMARKS'] === '1';
 
 const define = {
   ...makeDefine(),
@@ -39,6 +42,7 @@ export default defineConfig({
       return undefined;
     },
     include: ['src/**/*.{test,spec}{,.node}.?(c|m)[jt]s?(x)'],
+    excludeTags: RUN_BENCHMARKS ? [] : ['bench'],
     silent: 'passed-only',
     browser: {
       enabled: true,

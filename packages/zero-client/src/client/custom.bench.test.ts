@@ -1,5 +1,6 @@
 import {en, Faker, generateMersenne53Randomizer} from '@faker-js/faker';
-import {bench} from 'vitest';
+import {test} from 'vitest';
+import {bench} from '../../../shared/src/bench.ts';
 import {zeroData} from '../../../replicache/src/transactions.ts';
 import {createSilentLogContext} from '../../../shared/src/logging-test-utils.ts';
 import {generateSchema} from '../../../zql/src/query/test/schema-gen.ts';
@@ -16,12 +17,14 @@ const schema = generateSchema(
   200,
 );
 
-bench('big schema', () => {
-  new TransactionImpl(
-    createSilentLogContext(),
-    {
-      [zeroData]: {},
-    } as unknown as WriteTransaction,
-    schema,
-  );
+test('big schema', {tags: ['bench']}, async () => {
+  await bench('big schema', () => {
+    new TransactionImpl(
+      createSilentLogContext(),
+      {
+        [zeroData]: {},
+      } as unknown as WriteTransaction,
+      schema,
+    );
+  });
 });
