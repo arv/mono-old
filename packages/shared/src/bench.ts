@@ -9,10 +9,9 @@
  * - Supports mitata's generator pattern for per-iteration setup/teardown
  * - Returns a typed result for assertions
  * - Outputs BMF-compatible JSON for bencher CI when BENCH_OUTPUT_FORMAT=json
- * - CPU calibration via mitata's built-in noop measurement
  */
 
-import type {ctx, trial} from 'mitata';
+import type {trial} from 'mitata';
 import {
   bench as mitataBench,
   run as mitataRun,
@@ -29,11 +28,6 @@ export type BenchResult = {
   p99Ns: number;
   /** Operations per second = 1e9 / avgNs */
   throughput: number;
-  /**
-   * Measured CPU frequency in GHz from mitata's calibration noop.
-   * Useful for diagnosing result inconsistencies across runs or machines.
-   */
-  cpuGHz: number;
 };
 
 /**
@@ -52,11 +46,7 @@ export type GeneratorBenchFn = () => Generator<() => void | Promise<void>>;
 
 type BenchFn = Parameters<typeof mitataBench>[1];
 
-function extractResult(
-  name: string,
-  benchmarks: trial[],
-  context: ctx,
-): BenchResult {
+function extractResult(name: string, benchmarks: trial[]): BenchResult {
   const bm = benchmarks.find(b => b.alias === name || b.runs[0]?.name === name);
 
   if (!bm) {
@@ -69,12 +59,6 @@ function extractResult(
     throw err ?? new Error(`No stats for benchmark "${name}"`);
   }
 
-  const rawThroughput = 1e9 / stats.avg;
-  const cpuGHz = context.cpu.freq;
-  const refGHz = parseFloat(process.env.BENCH_CPU_REF_GHZ ?? '0');
-  const throughput =
-    refGHz > 0 ? rawThroughput * (cpuGHz / refGHz) : rawThroughput;
-
   return {
     name,
     avgNs: stats.avg,
@@ -82,8 +66,7 @@ function extractResult(
     maxNs: stats.max,
     p75Ns: stats.p75,
     p99Ns: stats.p99,
-    throughput,
-    cpuGHz,
+    throughput: 1e9 / stats.avg,
   };
 }
 
@@ -107,12 +90,6 @@ function extractResult(
  * **CI integration**: set BENCH_OUTPUT_FORMAT=json to emit mitata JSON to
  * stdout, compatible with the existing mitata-json-to-bmf.ts converter.
  *
- * **CPU normalization**: set BENCH_CPU_REF_GHZ to a reference frequency.
- * Throughput is scaled so results are comparable across machines:
- * normalizedThroughput = rawThroughput * (measuredGHz / refGHz)
- * This means a result from a 4 GHz machine is scaled down to what you'd
- * expect on the reference machine.
- *
  * For comparing multiple implementations side-by-side with a relative
  * summary table, use {@link benchSummary} instead.
  */
@@ -121,13 +98,13 @@ export async function bench(name: string, fn: BenchFn): Promise<BenchResult> {
 
   const isCIJsonMode = process.env.BENCH_OUTPUT_FORMAT === 'json';
 
-  const {benchmarks, context} = await mitataRun(
+  const {benchmarks} = await mitataRun(
     isCIJsonMode
       ? {format: {json: {samples: false, debug: false}}}
       : {format: 'quiet'},
   );
 
-  return extractResult(name, benchmarks, context);
+  return extractResult(name, benchmarks);
 }
 
 /**
@@ -190,7 +167,7 @@ export async function benchSummary(
 
   // In normal mode use the 'mitata' format so the summary table is printed.
   // In CI mode use JSON so the existing mitata-json-to-bmf.ts pipeline works.
-  const {benchmarks, context} = await mitataRun(
+  const {benchmarks} = await mitataRun(
     isCIJsonMode
       ? {format: {json: {samples: false, debug: false}}}
       : {format: 'mitata'},
@@ -200,7 +177,7 @@ export async function benchSummary(
 
   const results: Record<string, BenchResult> = {};
   for (const name of names) {
-    results[name] = extractResult(name, benchmarks, context);
+    results[name] = extractResult(name, benchmarks);
   }
   return results;
 }

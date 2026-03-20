@@ -1,19 +1,5 @@
 /* oxlint-disable no-console */
 // Convert mitata JSON output (without samples) to Bencher Metric Format (BMF)
-//
-// CPU normalization:
-//   Set BENCH_CPU_REF_GHZ to a reference CPU frequency (e.g. 3.5).
-//   The converter will scale throughput values so results from a faster or
-//   slower machine compare fairly against the historical baseline:
-//
-//     normalizedThroughput = rawThroughput * (measuredGHz / refGHz)
-//
-//   Example: a 4 GHz machine measures 10,000 ops/sec. With REF_GHZ=3.5:
-//     normalized = 10000 * (4.0 / 3.5) = 11,428 — so a 3.5 GHz machine
-//     would need to match 10,000 ops/sec to be considered equivalent.
-//
-//   The measured GHz comes from mitata's built-in calibration noop, which
-//   reflects actual execution speed more accurately than os.cpus()[0].speed.
 
 // BMF - Bencher Metric Format
 type BMFMetric = {
@@ -47,46 +33,16 @@ type MitataBenchmark = {
     | undefined;
 };
 
-type MitataContext = {
-  cpu?:
-    | {
-        /** Measured CPU frequency in GHz (1 / noop_avg_ns from calibration) */
-        freq?: number | undefined;
-      }
-    | undefined;
-};
-
 type MitataJsonOutput = {
   benchmarks: MitataBenchmark[];
-  context?: MitataContext | undefined;
 };
 
 function getStats(benchmark: MitataBenchmark): MitataStats | undefined {
   return benchmark.stats ?? benchmark.runs?.[0]?.stats;
 }
 
-function convertMitataJsonToBMF(
-  allBenchmarks: MitataBenchmark[],
-  allContexts: MitataContext[],
-): BMFMetric {
+function convertMitataJsonToBMF(allBenchmarks: MitataBenchmark[]): BMFMetric {
   const bmf: BMFMetric = {};
-
-  // Compute average measured CPU GHz across all run() calls in this suite.
-  // mitata measures this via a calibration noop at the start of each run().
-  const measuredGHz =
-    allContexts.length > 0
-      ? allContexts.reduce((sum, ctx) => sum + (ctx.cpu?.freq ?? 0), 0) /
-        allContexts.length
-      : 0;
-
-  const refGHz = parseFloat(process.env.BENCH_CPU_REF_GHZ ?? '0');
-  const scaleFactor = refGHz > 0 && measuredGHz > 0 ? measuredGHz / refGHz : 1;
-
-  if (refGHz > 0 && measuredGHz > 0) {
-    console.error(
-      `[cpu] measured=${measuredGHz.toFixed(2)}GHz ref=${refGHz.toFixed(2)}GHz scale=${scaleFactor.toFixed(3)}`,
-    );
-  }
 
   for (const benchmark of allBenchmarks) {
     const name = benchmark.alias || benchmark.name;
@@ -99,9 +55,9 @@ function convertMitataJsonToBMF(
     // Note: min latency → max throughput, max latency → min throughput.
     bmf[name] = {
       throughput: {
-        value: (1e9 / stats.avg) * scaleFactor,
-        lower_value: (1e9 / stats.max) * scaleFactor,
-        upper_value: (1e9 / stats.min) * scaleFactor,
+        value: 1e9 / stats.avg,
+        lower_value: 1e9 / stats.max,
+        upper_value: 1e9 / stats.min,
       },
     };
   }
@@ -128,7 +84,6 @@ async function main() {
     // Mitata outputs one JSON object per run() call, one per line.
     const lines = content.split('\n');
     const allBenchmarks: MitataBenchmark[] = [];
-    const allContexts: MitataContext[] = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -137,9 +92,6 @@ async function main() {
           const parsed = JSON.parse(line) as MitataJsonOutput;
           if (parsed.benchmarks) {
             allBenchmarks.push(...parsed.benchmarks);
-          }
-          if (parsed.context) {
-            allContexts.push(parsed.context);
           }
         } catch (e) {
           if (process.env.DEBUG_MITATA_CONVERTER) {
@@ -157,7 +109,7 @@ async function main() {
       throw new Error('No valid mitata benchmark data found in input');
     }
 
-    const bmfOutput = convertMitataJsonToBMF(allBenchmarks, allContexts);
+    const bmfOutput = convertMitataJsonToBMF(allBenchmarks);
     process.stdout.write(JSON.stringify(bmfOutput, null, 2));
   } catch (error) {
     console.error('Error converting mitata JSON to BMF:', error);
