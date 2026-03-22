@@ -54,7 +54,7 @@ const clientV5Schema = valita.readonlyObject({
    * The hash of a commit we are in the middle of refreshing into this client's
    * memdag.
    */
-  tempRefreshHash: hashSchema.nullable(),
+  tempRefreshHash: valita.nullable(hashSchema),
 
   /**
    * ID of this client's perdag client group. This needs to be sent in pull
@@ -86,7 +86,7 @@ const clientV6Schema = valita.readonlyObject({
    * The hash of the last snapshot commit persisted by this client to this
    * client's client group, or null if has never persisted a snapshot.
    */
-  persistHash: hashSchema.nullable(),
+  persistHash: valita.nullable(hashSchema),
 
   /**
    * ID of this client's perdag client group. This needs to be sent in pull
@@ -105,7 +105,7 @@ function isClientV6(client: Client): client is ClientV6 {
 
 export const CLIENTS_HEAD_NAME = 'clients';
 
-const clientSchema = valita.union(clientV5Schema, clientV6Schema);
+const clientSchema = valita.union([clientV5Schema, clientV6Schema]);
 
 function assertClient(value: unknown): asserts value is Client {
   valita.assert(value, clientSchema);

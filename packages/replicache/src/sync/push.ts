@@ -69,7 +69,7 @@ export type PushRequestV1 = {
   mutations: MutationV1[];
 };
 
-const pushRequestV1Schema = valita.object({
+const pushRequestV1Schema = valita.strictObject({
   pushVersion: valita.literal(1),
   schemaVersion: valita.string(),
   profileID: valita.string(),

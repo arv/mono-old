@@ -53,7 +53,7 @@ const clientGroupSchema = valita.readonlyObject({
    * it may be different because the other client does not update the commit
    * graph.
    */
-  lastServerAckdMutationIDs: valita.record(valita.number()),
+  lastServerAckdMutationIDs: valita.record(valita.string(), valita.number()),
 
   /**
    * If the server deletes this client group it can signal that the client group

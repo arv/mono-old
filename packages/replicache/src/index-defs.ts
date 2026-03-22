@@ -27,9 +27,9 @@ export type IndexDefinition = {
 
 export const indexDefinitionSchema: valita.Type<IndexDefinition> =
   valita.readonlyObject({
-    prefix: valita.string().optional(),
+    prefix: valita.optional(valita.string()),
     jsonPointer: valita.string(),
-    allowEmpty: valita.boolean().optional(),
+    allowEmpty: valita.optional(valita.boolean()),
   });
 
 /**

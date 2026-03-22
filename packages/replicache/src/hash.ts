@@ -105,4 +105,8 @@ export function assertHash(value: unknown): asserts value is Hash {
   valita.assert(value, hashSchema);
 }
 
-export const hashSchema = valita.string().assert(isHash, 'Invalid hash');
+export const hashSchema = valita.pipe(
+  valita.string(),
+  valita.check((v: string) => isHash(v), 'Invalid hash'),
+  valita.transform(v => v as Hash),
+);
