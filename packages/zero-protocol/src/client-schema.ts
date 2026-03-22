@@ -12,21 +12,21 @@ export const valueTypeSchema: v.Type<ValueType> = v.literalUnion(
   'json',
 );
 
-export const columnSchemaSchema = v.object({
+export const columnSchemaSchema = v.strictObject({
   type: valueTypeSchema,
 });
 
 export type ColumnSchema = v.Infer<typeof columnSchemaSchema>;
 
-export const tableSchemaSchema = v.object({
-  columns: v.record(columnSchemaSchema),
+export const tableSchemaSchema = v.strictObject({
+  columns: v.record(v.string(), columnSchemaSchema),
   primaryKey: v.array(v.string()),
 });
 
 export type TableSchema = v.Infer<typeof tableSchemaSchema>;
 
-export const clientSchemaSchema = v.object({
-  tables: v.record(tableSchemaSchema),
+export const clientSchemaSchema = v.strictObject({
+  tables: v.record(v.string(), tableSchemaSchema),
 });
 
 export type ClientSchema = v.Infer<typeof clientSchemaSchema>;
