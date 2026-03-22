@@ -21,10 +21,12 @@ export const toStaticParam = Symbol();
 export const planIdSymbol = Symbol('planId');
 
 const orderingElementSchema = v.readonly(
-  v.tuple([selectorSchema, v.literalUnion('asc', 'desc')]),
+  v.strictTuple([selectorSchema, v.literalUnion('asc', 'desc')]),
 );
 
-export const orderingSchema = v.readonly(v.readonlyArray(orderingElementSchema));
+export const orderingSchema = v.readonly(
+  v.readonlyArray(orderingElementSchema),
+);
 export type System = 'permissions' | 'client' | 'test';
 
 export const primitiveSchema = v.union([

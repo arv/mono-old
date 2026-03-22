@@ -6,7 +6,10 @@ import {rowSchema} from './data.ts';
 export const rowCountsByQuerySchema = v.record(v.string(), v.number());
 export type RowCountsByQuery = v.Infer<typeof rowCountsByQuerySchema>;
 
-export const rowCountsBySourceSchema = v.record(v.string(), rowCountsByQuerySchema);
+export const rowCountsBySourceSchema = v.record(
+  v.string(),
+  rowCountsByQuerySchema,
+);
 export type RowCountsBySource = v.Infer<typeof rowCountsBySourceSchema>;
 
 export const rowsByQuerySchema = v.record(v.string(), v.array(rowSchema));
@@ -26,7 +29,10 @@ const costEstimateJSONSchema = v.strictObject({
   limit: v.optional(v.number()),
 });
 
-const plannerConstraintSchema = v.record(v.string(), v.union([v.unknown(), v.null()]));
+const plannerConstraintSchema = v.record(
+  v.string(),
+  v.union([v.unknown(), v.null()]),
+);
 
 const attemptStartEventJSONSchema = v.strictObject({
   type: v.literal('attempt-start'),
@@ -43,7 +49,10 @@ const connectionCostsEventJSONSchema = v.strictObject({
       cost: v.number(),
       costEstimate: costEstimateJSONSchema,
       pinned: v.boolean(),
-      constraints: v.record(v.string(), v.union([plannerConstraintSchema, v.null()])),
+      constraints: v.record(
+        v.string(),
+        v.union([plannerConstraintSchema, v.null()]),
+      ),
       constraintCosts: v.record(v.string(), costEstimateJSONSchema),
     }),
   ),
@@ -63,7 +72,10 @@ const constraintsPropagatedEventJSONSchema = v.strictObject({
   connectionConstraints: v.array(
     v.strictObject({
       connection: v.string(),
-      constraints: v.record(v.string(), v.union([plannerConstraintSchema, v.null()])),
+      constraints: v.record(
+        v.string(),
+        v.union([plannerConstraintSchema, v.null()]),
+      ),
       constraintCosts: v.record(v.string(), costEstimateJSONSchema),
     }),
   ),

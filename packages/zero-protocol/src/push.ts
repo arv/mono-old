@@ -113,7 +113,10 @@ export const customMutationSchema = v.strictObject({
   timestamp: v.number(),
 });
 
-export const mutationSchema = v.union([crudMutationSchema, customMutationSchema]);
+export const mutationSchema = v.union([
+  crudMutationSchema,
+  customMutationSchema,
+]);
 
 export const pushBodySchema = v.strictObject({
   clientGroupID: v.string(),
@@ -127,7 +130,10 @@ export const pushBodySchema = v.strictObject({
   requestID: v.string(),
 });
 
-export const pushMessageSchema = v.strictTuple([v.literal('push'), pushBodySchema]);
+export const pushMessageSchema = v.strictTuple([
+  v.literal('push'),
+  pushBodySchema,
+]);
 
 const appErrorSchema = v.strictObject({
   error: v.literal('app'),
