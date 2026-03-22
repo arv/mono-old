@@ -1,4 +1,4 @@
-import * as valita from '@badrap/valita';
+import type {IssuePathItem} from 'valibot';
 import {skipAssertJSONValue} from './config.ts';
 import type {ReadonlyJSONObject, ReadonlyJSONValue} from './json.ts';
 import {isJSONObject, isJSONValue} from './json.ts';
@@ -6,34 +6,50 @@ import * as v from './valita.ts';
 
 const path: (string | number)[] = [];
 
-export const jsonSchema: valita.Type<ReadonlyJSONValue> = v
-  .unknown()
-  .chain(v => {
+export const jsonSchema: v.Type<ReadonlyJSONValue> = v.pipe(
+  v.unknown(),
+  v.rawTransform(({dataset, addIssue, NEVER}) => {
     if (skipAssertJSONValue) {
-      return valita.ok(v as ReadonlyJSONValue);
+      return dataset.value as ReadonlyJSONValue;
     }
-    const rv = isJSONValue(v, path)
-      ? valita.ok(v)
-      : valita.err({
-          message: `Not a JSON value`,
-          path: path.slice(),
-        });
+    const value = dataset.value;
+    if (isJSONValue(value, path)) {
+      path.length = 0;
+      return value as ReadonlyJSONValue;
+    }
+    const p = path.slice();
     path.length = 0;
-    return rv;
-  });
+    const pathItems = p.map(key => ({key})) as IssuePathItem[];
+    addIssue({
+      message: `Not a JSON value`,
+      ...(pathItems.length > 0
+        ? {path: pathItems as [IssuePathItem, ...IssuePathItem[]]}
+        : {}),
+    });
+    return NEVER;
+  }),
+);
 
-export const jsonObjectSchema: valita.Type<ReadonlyJSONObject> = v
-  .unknown()
-  .chain(v => {
+export const jsonObjectSchema: v.Type<ReadonlyJSONObject> = v.pipe(
+  v.unknown(),
+  v.rawTransform(({dataset, addIssue, NEVER}) => {
     if (skipAssertJSONValue) {
-      return valita.ok(v as ReadonlyJSONObject);
+      return dataset.value as ReadonlyJSONObject;
     }
-    const rv = isJSONObject(v, path)
-      ? valita.ok(v)
-      : valita.err({
-          message: `Not a JSON object`,
-          path: path.slice(),
-        });
+    const value = dataset.value;
+    if (isJSONObject(value, path)) {
+      path.length = 0;
+      return value as ReadonlyJSONObject;
+    }
+    const p = path.slice();
     path.length = 0;
-    return rv;
-  });
+    const pathItems = p.map(key => ({key})) as IssuePathItem[];
+    addIssue({
+      message: `Not a JSON object`,
+      ...(pathItems.length > 0
+        ? {path: pathItems as [IssuePathItem, ...IssuePathItem[]]}
+        : {}),
+    });
+    return NEVER;
+  }),
+);

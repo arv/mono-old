@@ -22,11 +22,11 @@ const basicErrorKindSchema = v.literalUnion(
   ErrorKind.Internal,
 );
 
-const basicErrorBodySchema = v.object({
+const basicErrorBodySchema = v.strictObject({
   kind: basicErrorKindSchema,
   message: v.string(),
   // this is optional for backwards compatibility
-  origin: v.literalUnion(ErrorOrigin.Server, ErrorOrigin.ZeroCache).optional(),
+  origin: v.optional(v.literalUnion(ErrorOrigin.Server, ErrorOrigin.ZeroCache)),
 });
 
 const backoffErrorKindSchema = v.literalUnion(
@@ -35,11 +35,11 @@ const backoffErrorKindSchema = v.literalUnion(
   ErrorKind.ServerOverloaded,
 );
 
-const backoffBodySchema = v.object({
+const backoffBodySchema = v.strictObject({
   kind: backoffErrorKindSchema,
   message: v.string(),
-  minBackoffMs: v.number().optional(),
-  maxBackoffMs: v.number().optional(),
+  minBackoffMs: v.optional(v.number()),
+  maxBackoffMs: v.optional(v.number()),
   // Query parameters to send in the next reconnect. In the event of
   // a conflict, these will be overridden by the parameters used by
   // the client; it is the responsibility of the server to avoid
@@ -47,23 +47,23 @@ const backoffBodySchema = v.object({
   //
   // The parameters will only be added to the immediately following
   // reconnect, and not after that.
-  reconnectParams: v.record(v.string()).optional(),
-  origin: v.literal(ErrorOrigin.ZeroCache).optional(),
+  reconnectParams: v.optional(v.record(v.string(), v.string())),
+  origin: v.optional(v.literal(ErrorOrigin.ZeroCache)),
 });
 
 const pushFailedErrorKindSchema = v.literal(ErrorKind.PushFailed);
 const transformFailedErrorKindSchema = v.literal(ErrorKind.TransformFailed);
 
-export const errorKindSchema: v.Type<ErrorKind> = v.union(
+export const errorKindSchema: v.Type<ErrorKind> = v.union([
   basicErrorKindSchema,
   backoffErrorKindSchema,
   pushFailedErrorKindSchema,
   transformFailedErrorKindSchema,
-);
+]);
 
-const pushFailedBaseSchema = v.object({
+const pushFailedBaseSchema = v.strictObject({
   kind: pushFailedErrorKindSchema,
-  details: jsonSchema.optional(),
+  details: v.optional(jsonSchema),
   /**
    * The mutationIDs of the mutations that failed to process.
    * This can be a subset of the mutationIDs in the request.
@@ -72,8 +72,9 @@ const pushFailedBaseSchema = v.object({
   message: v.string(),
 });
 
-export const pushFailedBodySchema = v.union(
-  pushFailedBaseSchema.extend({
+export const pushFailedBodySchema = v.union([
+  v.strictObject({
+    ...pushFailedBaseSchema.entries,
     origin: v.literal(ErrorOrigin.Server),
     reason: v.literalUnion(
       ErrorReason.Database,
@@ -83,13 +84,15 @@ export const pushFailedBodySchema = v.union(
       ErrorReason.Internal,
     ),
   }),
-  pushFailedBaseSchema.extend({
+  v.strictObject({
+    ...pushFailedBaseSchema.entries,
     origin: v.literal(ErrorOrigin.ZeroCache),
     reason: v.literal(ErrorReason.HTTP),
     status: v.number(),
-    bodyPreview: v.string().optional(),
+    bodyPreview: v.optional(v.string()),
   }),
-  pushFailedBaseSchema.extend({
+  v.strictObject({
+    ...pushFailedBaseSchema.entries,
     origin: v.literal(ErrorOrigin.ZeroCache),
     reason: v.literalUnion(
       ErrorReason.Timeout,
@@ -97,11 +100,11 @@ export const pushFailedBodySchema = v.union(
       ErrorReason.Internal,
     ),
   }),
-);
+]);
 
-const transformFailedBaseSchema = v.object({
+const transformFailedBaseSchema = v.strictObject({
   kind: transformFailedErrorKindSchema,
-  details: jsonSchema.optional(),
+  details: v.optional(jsonSchema),
   /**
    * The queryIDs of the queries that failed to transform.
    */
@@ -109,8 +112,9 @@ const transformFailedBaseSchema = v.object({
   message: v.string(),
 });
 
-export const transformFailedBodySchema = v.union(
-  transformFailedBaseSchema.extend({
+export const transformFailedBodySchema = v.union([
+  v.strictObject({
+    ...transformFailedBaseSchema.entries,
     origin: v.literal(ErrorOrigin.Server),
     reason: v.literalUnion(
       ErrorReason.Database,
@@ -118,13 +122,15 @@ export const transformFailedBodySchema = v.union(
       ErrorReason.Internal,
     ),
   }),
-  transformFailedBaseSchema.extend({
+  v.strictObject({
+    ...transformFailedBaseSchema.entries,
     origin: v.literal(ErrorOrigin.ZeroCache),
     reason: v.literal(ErrorReason.HTTP),
     status: v.number(),
-    bodyPreview: v.string().optional(),
+    bodyPreview: v.optional(v.string()),
   }),
-  transformFailedBaseSchema.extend({
+  v.strictObject({
+    ...transformFailedBaseSchema.entries,
     origin: v.literal(ErrorOrigin.ZeroCache),
     reason: v.literalUnion(
       ErrorReason.Timeout,
@@ -132,21 +138,21 @@ export const transformFailedBodySchema = v.union(
       ErrorReason.Internal,
     ),
   }),
-);
+]);
 
-export const errorBodySchema = v.union(
+export const errorBodySchema = v.union([
   basicErrorBodySchema,
   backoffBodySchema,
   pushFailedBodySchema,
   transformFailedBodySchema,
-);
+]);
 
 export type BackoffBody = v.Infer<typeof backoffBodySchema>;
 export type PushFailedBody = v.Infer<typeof pushFailedBodySchema>;
 export type TransformFailedBody = v.Infer<typeof transformFailedBodySchema>;
 export type ErrorBody = v.Infer<typeof errorBodySchema>;
 
-export const errorMessageSchema: v.Type<ErrorMessage> = v.tuple([
+export const errorMessageSchema: v.Type<ErrorMessage> = v.strictTuple([
   v.literal('error'),
   errorBodySchema,
 ]);

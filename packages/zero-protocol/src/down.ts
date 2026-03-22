@@ -13,7 +13,7 @@ import {pongMessageSchema} from './pong.ts';
 import {pullResponseMessageSchema} from './pull.ts';
 import {pushResponseMessageSchema} from './push.ts';
 
-export const downstreamSchema = v.union(
+export const downstreamSchema = v.union([
   connectedMessageSchema,
   errorMessageSchema,
   pongMessageSchema,
@@ -25,6 +25,6 @@ export const downstreamSchema = v.union(
   pushResponseMessageSchema,
   inspectDownMessageSchema,
   transformErrorMessageSchema,
-);
+]);
 
 export type Downstream = v.Infer<typeof downstreamSchema>;

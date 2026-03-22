@@ -11,30 +11,30 @@ import {upQueriesPatchSchema} from './queries-patch.ts';
  * syncing lots of queries which are no longer desired by the client.
  */
 
-export const connectedBodySchema = v.object({
+export const connectedBodySchema = v.strictObject({
   wsid: v.string(),
-  timestamp: v.number().optional(),
+  timestamp: v.optional(v.number()),
 });
 
-export const connectedMessageSchema = v.tuple([
+export const connectedMessageSchema = v.strictTuple([
   v.literal('connected'),
   connectedBodySchema,
 ]);
 
-const initConnectionBodySchema = v.object({
+const initConnectionBodySchema = v.strictObject({
   desiredQueriesPatch: upQueriesPatchSchema,
   // As the schema can be large, client only sends when it does not have a
   // server snapshot (i.e. a snapshot with a cookie).  Once it has a server
   // snapshot it will assume the zero-cache already has the schema for this
   // client's client group in the CVR store.
-  clientSchema: clientSchemaSchema.optional(),
-  deleted: deleteClientsBodySchema.optional(),
+  clientSchema: v.optional(clientSchemaSchema),
+  deleted: v.optional(deleteClientsBodySchema),
   // parameters to configure the mutate endpoint
-  userPushURL: v.string().optional(),
-  userPushHeaders: v.record(v.string()).optional(),
+  userPushURL: v.optional(v.string()),
+  userPushHeaders: v.optional(v.record(v.string(), v.string())),
   // parameters to configure the query endpoint
-  userQueryURL: v.string().optional(),
-  userQueryHeaders: v.record(v.string()).optional(),
+  userQueryURL: v.optional(v.string()),
+  userQueryHeaders: v.optional(v.record(v.string(), v.string())),
 
   /**
    * `activeClients` is an optional array of client IDs that are currently active
@@ -42,10 +42,10 @@ const initConnectionBodySchema = v.object({
    * that are currently active (aka running, aka alive), so it can inactive
    * queries from inactive clients.
    */
-  activeClients: v.array(v.string()).optional(),
+  activeClients: v.optional(v.array(v.string())),
 });
 
-export const initConnectionMessageSchema = v.tuple([
+export const initConnectionMessageSchema = v.strictTuple([
   v.literal('initConnection'),
   initConnectionBodySchema,
 ]);

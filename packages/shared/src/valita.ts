@@ -1,11 +1,9 @@
 import type {
-  ArraySchema,
   BaseIssue,
   BaseSchema,
   InferOutput,
   ObjectEntries,
   OptionalSchema,
-  RecordSchema,
   StrictObjectSchema,
 } from 'valibot';
 import * as v from 'valibot';
@@ -452,14 +450,16 @@ export function readonlyObject<T extends ObjectEntries>(
 
 export function readonlyArray<T extends Type<unknown>>(
   t: T,
-): ArraySchema<T, undefined> {
-  return v.array(t);
+): Type<ReadonlyArray<InferOutput<T>>> {
+  return v.array(t) as unknown as Type<ReadonlyArray<InferOutput<T>>>;
 }
 
 export function readonlyRecord<T extends Type<unknown>>(
   t: T,
-): RecordSchema<v.StringSchema<undefined>, T, undefined> {
-  return v.record(v.string(), t);
+): Type<Readonly<Record<string, InferOutput<T>>>> {
+  return v.record(v.string(), t) as unknown as Type<
+    Readonly<Record<string, InferOutput<T>>>
+  >;
 }
 
 export function instanceOfAbstractType<T = unknown>(

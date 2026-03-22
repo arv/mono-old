@@ -1,5 +1,6 @@
 import {jsonSchema} from './json-schema.ts';
 import type {ReadonlyJSONValue} from './json.ts';
+import * as v from './valita.ts';
 
 export function getErrorMessage(error: unknown): string {
   return getErrorMessageInternal(error, new Set());
@@ -46,7 +47,7 @@ function getErrorMessageInternal(error: unknown, seen: Set<unknown>): string {
   }
 
   try {
-    const json = jsonSchema.parse(error);
+    const json = v.parse(error, jsonSchema);
     return `Parsed message: ${JSON.stringify(json)}`;
   } catch {}
 
@@ -57,7 +58,7 @@ export function getErrorDetails(error: unknown): ReadonlyJSONValue | undefined {
   if (error instanceof Error) {
     if ('details' in error) {
       try {
-        return jsonSchema.parse(error?.details);
+        return v.parse(error?.details, jsonSchema);
       } catch {}
     }
 
@@ -70,12 +71,12 @@ export function getErrorDetails(error: unknown): ReadonlyJSONValue | undefined {
 
   if (typeof error === 'object' && error !== null && 'details' in error) {
     try {
-      return jsonSchema.parse((error as {details: ReadonlyJSONValue})?.details);
+      return v.parse((error as {details: ReadonlyJSONValue})?.details, jsonSchema);
     } catch {}
   }
 
   try {
-    return jsonSchema.parse(error);
+    return v.parse(error, jsonSchema);
   } catch {}
 
   return undefined;

@@ -24,15 +24,15 @@ const orderingElementSchema = v.readonly(
   v.tuple([selectorSchema, v.literalUnion('asc', 'desc')]),
 );
 
-export const orderingSchema = v.readonlyArray(orderingElementSchema);
+export const orderingSchema = v.readonly(v.readonlyArray(orderingElementSchema));
 export type System = 'permissions' | 'client' | 'test';
 
-export const primitiveSchema = v.union(
+export const primitiveSchema = v.union([
   v.string(),
   v.number(),
   v.boolean(),
   v.null(),
-);
+]);
 
 export const equalityOpsSchema = v.literalUnion('=', '!=', 'IS', 'IS NOT');
 
@@ -47,22 +47,22 @@ export const likeOpsSchema = v.literalUnion(
 
 export const inOpsSchema = v.literalUnion('IN', 'NOT IN');
 
-export const simpleOperatorSchema = v.union(
+export const simpleOperatorSchema = v.union([
   equalityOpsSchema,
   orderOpsSchema,
   likeOpsSchema,
   inOpsSchema,
-);
+]);
 
 const literalReferenceSchema: v.Type<LiteralReference> = v.readonlyObject({
   type: v.literal('literal'),
-  value: v.union(
+  value: v.union([
     v.string(),
     v.number(),
     v.boolean(),
     v.null(),
-    v.readonlyArray(v.union(v.string(), v.number(), v.boolean())),
-  ),
+    v.readonlyArray(v.union([v.string(), v.number(), v.boolean()])),
+  ]),
 });
 const columnReferenceSchema: v.Type<ColumnReference> = v.readonlyObject({
   type: v.literal('column'),
@@ -94,14 +94,14 @@ const parameterReferenceSchema = v.readonlyObject({
   // Read and write authorization will both send the
   // current authentication data (authData).
   anchor: v.literalUnion('authData', 'preMutationRow'),
-  field: v.union(v.string(), v.array(v.string())),
+  field: v.union([v.string(), v.array(v.string())]),
 });
 
-const conditionValueSchema = v.union(
+const conditionValueSchema = v.union([
   literalReferenceSchema,
   columnReferenceSchema,
   parameterReferenceSchema,
-);
+]);
 
 export type Parameter = v.Infer<typeof parameterReferenceSchema>;
 
@@ -109,7 +109,7 @@ export const simpleConditionSchema: v.Type<SimpleCondition> = v.readonlyObject({
   type: v.literal('simple'),
   op: simpleOperatorSchema,
   left: conditionValueSchema,
-  right: v.union(parameterReferenceSchema, literalReferenceSchema),
+  right: v.union([parameterReferenceSchema, literalReferenceSchema]),
 });
 
 type ConditionValue = v.Infer<typeof conditionValueSchema>;
@@ -122,15 +122,15 @@ export const correlatedSubqueryConditionSchema: v.Type<CorrelatedSubqueryConditi
     type: v.literal('correlatedSubquery'),
     related: v.lazy(() => correlatedSubquerySchema),
     op: correlatedSubqueryConditionOperatorSchema,
-    flip: v.boolean().optional(),
+    flip: v.optional(v.boolean()),
   });
 
-export const conditionSchema: v.Type<Condition> = v.union(
+export const conditionSchema: v.Type<Condition> = v.union([
   simpleConditionSchema,
   v.lazy(() => conjunctionSchema),
   v.lazy(() => disjunctionSchema),
   correlatedSubqueryConditionSchema,
-);
+]);
 
 const conjunctionSchema: v.Type<Conjunction> = v.readonlyObject({
   type: v.literal('and'),
@@ -150,7 +150,7 @@ function mustCompoundKey(field: readonly string[]): CompoundKey {
 }
 
 export const compoundKeySchema: v.Type<CompoundKey> = v.readonly(
-  v.tuple([v.string()]).concat(v.array(v.string())),
+  v.tupleWithRest([v.string()], v.string()),
 );
 
 const correlationSchema = v.readonlyObject({
@@ -166,29 +166,30 @@ const correlationSchema = v.readonlyObject({
 // type.
 export const correlatedSubquerySchemaOmitSubquery = v.readonlyObject({
   correlation: correlationSchema,
-  hidden: v.boolean().optional(),
-  system: v.literalUnion('permissions', 'client', 'test').optional(),
+  hidden: v.optional(v.boolean()),
+  system: v.optional(v.literalUnion('permissions', 'client', 'test')),
 });
 
 export const correlatedSubquerySchema: v.Type<CorrelatedSubquery> =
-  correlatedSubquerySchemaOmitSubquery.extend({
+  v.readonlyObject({
+    ...correlatedSubquerySchemaOmitSubquery.entries,
     subquery: v.lazy(() => astSchema),
   });
 
 export const astSchema: v.Type<AST> = v.readonlyObject({
-  schema: v.string().optional(),
+  schema: v.optional(v.string()),
   table: v.string(),
-  alias: v.string().optional(),
-  where: conditionSchema.optional(),
-  related: v.readonlyArray(correlatedSubquerySchema).optional(),
-  limit: v.number().optional(),
-  orderBy: orderingSchema.optional(),
-  start: v
-    .object({
+  alias: v.optional(v.string()),
+  where: v.optional(conditionSchema),
+  related: v.optional(v.readonlyArray(correlatedSubquerySchema)),
+  limit: v.optional(v.number()),
+  orderBy: v.optional(orderingSchema),
+  start: v.optional(
+    v.strictObject({
       row: rowSchema,
       exclusive: v.boolean(),
-    })
-    .optional(),
+    }),
+  ),
 });
 
 export type Bound = {

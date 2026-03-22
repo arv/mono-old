@@ -2,32 +2,33 @@ import {jsonSchema} from '../../shared/src/json-schema.ts';
 import * as v from '../../shared/src/valita.ts';
 import {astSchema} from './ast.ts';
 
-export const putOpSchema = v.object({
+export const putOpSchema = v.strictObject({
   op: v.literal('put'),
   hash: v.string(),
-  ttl: v.number().optional(),
+  ttl: v.optional(v.number()),
 });
 
-export const upPutOpSchema = putOpSchema.extend({
+export const upPutOpSchema = v.strictObject({
+  ...putOpSchema.entries,
   // All fields are optional in this transitional period.
   // - ast is filled in for client queries
   // - name and args are filled in for custom queries
-  ast: astSchema.optional(),
-  name: v.string().optional(),
-  args: v.readonly(v.array(jsonSchema)).optional(),
+  ast: v.optional(astSchema),
+  name: v.optional(v.string()),
+  args: v.optional(v.readonly(v.array(jsonSchema))),
 });
 
-const delOpSchema = v.object({
+const delOpSchema = v.strictObject({
   op: v.literal('del'),
   hash: v.string(),
 });
 
-const clearOpSchema = v.object({
+const clearOpSchema = v.strictObject({
   op: v.literal('clear'),
 });
 
-const patchOpSchema = v.union(putOpSchema, delOpSchema, clearOpSchema);
-const upPatchOpSchema = v.union(upPutOpSchema, delOpSchema, clearOpSchema);
+const patchOpSchema = v.union([putOpSchema, delOpSchema, clearOpSchema]);
+const upPatchOpSchema = v.union([upPutOpSchema, delOpSchema, clearOpSchema]);
 
 export const queriesPatchSchema = v.array(patchOpSchema);
 export const upQueriesPatchSchema = v.array(upPatchOpSchema);

@@ -2,30 +2,34 @@ import {jsonSchema} from '../../shared/src/json-schema.ts';
 import * as v from '../../shared/src/valita.ts';
 import {astSchema} from './ast.ts';
 
-const inspectUpBase = v.object({
+const inspectUpBase = v.strictObject({
   id: v.string(),
 });
 
-const inspectQueriesUpBodySchema = inspectUpBase.extend({
+const inspectQueriesUpBodySchema = v.strictObject({
+  ...inspectUpBase.entries,
   op: v.literal('queries'),
-  clientID: v.string().optional(),
+  clientID: v.optional(v.string()),
 });
 
 export type InspectQueriesUpBody = v.Infer<typeof inspectQueriesUpBodySchema>;
 
-const inspectMetricsUpSchema = inspectUpBase.extend({
+const inspectMetricsUpSchema = v.strictObject({
+  ...inspectUpBase.entries,
   op: v.literal('metrics'),
 });
 
 export type InspectMetricsUpBody = v.Infer<typeof inspectMetricsUpSchema>;
 
-const inspectVersionUpSchema = inspectUpBase.extend({
+const inspectVersionUpSchema = v.strictObject({
+  ...inspectUpBase.entries,
   op: v.literal('version'),
 });
 
 export type InspectVersionUpBody = v.Infer<typeof inspectVersionUpSchema>;
 
-export const inspectAuthenticateUpSchema = inspectUpBase.extend({
+export const inspectAuthenticateUpSchema = v.strictObject({
+  ...inspectUpBase.entries,
   op: v.literal('authenticate'),
   value: v.string(),
 });
@@ -34,37 +38,38 @@ export type InspectAuthenticateUpBody = v.Infer<
   typeof inspectAuthenticateUpSchema
 >;
 
-const analyzeQueryOptionsSchema = v.object({
-  vendedRows: v.boolean().optional(),
-  syncedRows: v.boolean().optional(),
-  joinPlans: v.boolean().optional(),
+const analyzeQueryOptionsSchema = v.strictObject({
+  vendedRows: v.optional(v.boolean()),
+  syncedRows: v.optional(v.boolean()),
+  joinPlans: v.optional(v.boolean()),
 });
 
 export type AnalyzeQueryOptions = v.Infer<typeof analyzeQueryOptionsSchema>;
 
-export const inspectAnalyzeQueryUpSchema = inspectUpBase.extend({
+export const inspectAnalyzeQueryUpSchema = v.strictObject({
+  ...inspectUpBase.entries,
   op: v.literal('analyze-query'),
   /** @deprecated Use {@linkcode ast} instead */
-  value: astSchema.optional(),
-  options: analyzeQueryOptionsSchema.optional(),
-  ast: astSchema.optional(),
-  name: v.string().optional(),
-  args: v.readonlyArray(jsonSchema).optional(),
+  value: v.optional(astSchema),
+  options: v.optional(analyzeQueryOptionsSchema),
+  ast: v.optional(astSchema),
+  name: v.optional(v.string()),
+  args: v.optional(v.readonlyArray(jsonSchema)),
 });
 
 export type InspectAnalyzeQueryUpBody = v.Infer<
   typeof inspectAnalyzeQueryUpSchema
 >;
 
-const inspectUpBodySchema = v.union(
+const inspectUpBodySchema = v.union([
   inspectQueriesUpBodySchema,
   inspectMetricsUpSchema,
   inspectVersionUpSchema,
   inspectAuthenticateUpSchema,
   inspectAnalyzeQueryUpSchema,
-);
+]);
 
-export const inspectUpMessageSchema = v.tuple([
+export const inspectUpMessageSchema = v.strictTuple([
   v.literal('inspect'),
   inspectUpBodySchema,
 ]);

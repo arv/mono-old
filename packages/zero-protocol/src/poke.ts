@@ -29,7 +29,7 @@ import {nullableVersionSchema, versionSchema} from './version.ts';
  * disconnect, and reconnect.
  */
 
-export const pokeStartBodySchema = v.object({
+export const pokeStartBodySchema = v.strictObject({
   pokeID: v.string(),
   // We always specify a Version as our cookie, but Replicache starts clients
   // with initial cookie `null`, before the first request. So we have to be
@@ -39,48 +39,48 @@ export const pokeStartBodySchema = v.object({
    * This field is always set if the poke contains a `rowsPatch`.
    * It may be absent for patches that only update clients and queries.
    */
-  schemaVersions: v
-    .object({
+  schemaVersions: v.optional(
+    v.strictObject({
       minSupportedVersion: v.number(),
       maxSupportedVersion: v.number(),
-    })
-    .optional(),
-  timestamp: v.number().optional(),
+    }),
+  ),
+  timestamp: v.optional(v.number()),
 });
 
-export const pokePartBodySchema = v.object({
+export const pokePartBodySchema = v.strictObject({
   pokeID: v.string(),
   // Changes to last mutation id by client id.
-  lastMutationIDChanges: v.record(v.number()).optional(),
+  lastMutationIDChanges: v.optional(v.record(v.string(), v.number())),
   // Patches to the desired query sets by client id.
-  desiredQueriesPatches: v.record(queriesPatchSchema).optional(),
+  desiredQueriesPatches: v.optional(v.record(v.string(), queriesPatchSchema)),
   // Patches to the set of queries for which entities are sync'd in
   // rowsPatch.
-  gotQueriesPatch: queriesPatchSchema.optional(),
+  gotQueriesPatch: v.optional(queriesPatchSchema),
   // Patches to the rows set.
-  rowsPatch: rowsPatchSchema.optional(),
+  rowsPatch: v.optional(rowsPatchSchema),
   // Mutation results patch
-  mutationsPatch: mutationsPatchSchema.optional(),
+  mutationsPatch: v.optional(mutationsPatchSchema),
 });
 
-export const pokeEndBodySchema = v.object({
+export const pokeEndBodySchema = v.strictObject({
   pokeID: v.string(),
   // Note: This should be ignored (and may be empty) if cancel === `true`.
   cookie: versionSchema,
   // If `true`, the poke with id `pokeID` should be discarded without
   // applying it.
-  cancel: v.boolean().optional(),
+  cancel: v.optional(v.boolean()),
 });
 
-export const pokeStartMessageSchema = v.tuple([
+export const pokeStartMessageSchema = v.strictTuple([
   v.literal('pokeStart'),
   pokeStartBodySchema,
 ]);
-export const pokePartMessageSchema = v.tuple([
+export const pokePartMessageSchema = v.strictTuple([
   v.literal('pokePart'),
   pokePartBodySchema,
 ]);
-export const pokeEndMessageSchema = v.tuple([
+export const pokeEndMessageSchema = v.strictTuple([
   v.literal('pokeEnd'),
   pokeEndBodySchema,
 ]);
