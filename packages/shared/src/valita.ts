@@ -1,178 +1,38 @@
-import * as v from '@badrap/valita';
+import type {
+  ArraySchema,
+  BaseIssue,
+  BaseSchema,
+  InferOutput,
+  ObjectEntries,
+  OptionalSchema,
+  RecordSchema,
+  StrictObjectSchema,
+} from 'valibot';
+import * as v from 'valibot';
 
-export * from '@badrap/valita';
+export * from 'valibot';
 
-function toDisplay(value: unknown): string {
-  switch (typeof value) {
-    case 'string':
-    case 'number':
-    case 'boolean':
-      return JSON.stringify(value);
-    case 'undefined':
-      return 'undefined';
-    case 'bigint':
-      return value.toString() + 'n';
-    default:
-      if (value === null) {
-        return 'null';
-      }
-      if (Array.isArray(value)) {
-        return 'array';
-      }
-      return typeof value;
-  }
-}
+/**
+ * Type alias for a valibot schema with a known output type.
+ * Equivalent to the old @badrap/valita `Type<T>`.
+ */
+export type Type<T> = BaseSchema<unknown, T, BaseIssue<unknown>>;
 
-type Key = string | number;
+/**
+ * Type alias for an optional valibot schema.
+ * Equivalent to the old @badrap/valita `Optional<T>`.
+ */
+export type Optional<T> = OptionalSchema<
+  BaseSchema<unknown, T, BaseIssue<unknown>>,
+  undefined
+>;
 
-function toDisplayAtPath(v: unknown, path: Key[] | undefined): string {
-  if (!path?.length) {
-    return toDisplay(v);
-  }
-
-  let cur = v;
-  for (const p of path) {
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    cur = (cur as any)[p];
-  }
-  return toDisplay(cur);
-}
-
-function displayList<T>(
-  word: string,
-  expected: T[],
-  toDisplay: (x: T) => string | number = x => String(x),
-): string | number {
-  if (expected.length === 1) {
-    return toDisplay(expected[0]);
-  }
-
-  const suffix = `${toDisplay(
-    expected[expected.length - 2],
-  )} ${word} ${toDisplay(expected[expected.length - 1])}`;
-  if (expected.length === 2) {
-    return suffix;
-  }
-  return `${expected.slice(0, -2).map(toDisplay).join(', ')}, ${suffix}`;
-}
-
-function getMessage(
-  err: v.Err | v.ValitaError,
-  v: unknown,
-  schema: v.Type | v.Optional,
-  mode: ParseOptionsMode | undefined,
-): string {
-  const firstIssue = err.issues[0];
-  const {path} = firstIssue;
-  const atPath = path?.length ? ` at ${path.join('.')}` : '';
-
-  switch (firstIssue.code) {
-    case 'invalid_type':
-      return `Expected ${displayList(
-        'or',
-        firstIssue.expected,
-      )}${atPath}. Got ${toDisplayAtPath(v, path)}`;
-    case 'missing_value': {
-      const atPath =
-        path && path.length > 1 ? ` at ${path.slice(0, -1).join('.')}` : '';
-
-      if (firstIssue.path?.length) {
-        return `Missing property ${firstIssue.path.at(-1)}${atPath}`;
-      }
-      return `TODO Unknown missing property${atPath}`;
-    }
-
-    case 'invalid_literal':
-      return `Expected literal value ${displayList(
-        'or',
-        firstIssue.expected,
-        toDisplay,
-      )}${atPath} Got ${toDisplayAtPath(v, path)}`;
-
-    case 'invalid_length': {
-      return `Expected array with length ${
-        firstIssue.minLength === firstIssue.maxLength
-          ? firstIssue.minLength
-          : `between ${firstIssue.minLength} and ${firstIssue.maxLength}`
-      }${atPath}. Got array with length ${(v as {length: number}).length}`;
-    }
-
-    case 'unrecognized_keys':
-      if (firstIssue.keys.length === 1) {
-        return `Unexpected property ${firstIssue.keys[0]}${atPath}`;
-      }
-      return `Unexpected properties ${displayList(
-        'and',
-        firstIssue.keys,
-      )}${atPath}`;
-
-    case 'invalid_union':
-      return schema.name === 'union'
-        ? getDeepestUnionParseError(v, schema as v.UnionType, mode ?? 'strict')
-        : `Invalid union value${atPath}`;
-
-    case 'custom_error': {
-      const {error} = firstIssue;
-      const message = !error
-        ? 'unknown'
-        : typeof error === 'string'
-          ? error
-          : (error.message ?? 'unknown');
-      return `${message}${atPath}. Got ${toDisplayAtPath(v, path)}`;
-    }
-  }
-}
-
-type FailedType = {type: v.Type; err: v.Err};
-
-function getDeepestUnionParseError(
-  value: unknown,
-  schema: v.UnionType,
-  mode: ParseOptionsMode,
-): string {
-  const failures: FailedType[] = [];
-  for (const type of schema.options) {
-    const r = type.try(value, {mode});
-    if (!r.ok) {
-      failures.push({type, err: r});
-    }
-  }
-  if (failures.length) {
-    // compare the first and second longest-path errors
-    failures.sort(pathCmp);
-    if (failures.length === 1 || pathCmp(failures[0], failures[1]) < 0) {
-      return getMessage(failures[0].err, value, failures[0].type, mode);
-    }
-  }
-  // paths are equivalent
-  try {
-    const str = JSON.stringify(value);
-    return `Invalid union value: ${str}`;
-  } catch {
-    // fallback if the value could not be stringified
-    return `Invalid union value`;
-  }
-}
-
-// Descending-order comparison of Issue paths.
-// * [1, 'a'] sorts before [1]
-// * [1] sorts before [0]  (i.e. errors later in the tuple sort before earlier errors)
-function pathCmp(a: FailedType, b: FailedType) {
-  const aPath = a.err.issues[0].path;
-  const bPath = b.err.issues[0].path;
-  if (aPath.length !== bPath.length) {
-    return bPath.length - aPath.length;
-  }
-  for (let i = 0; i < aPath.length; i++) {
-    if (bPath[i] > aPath[i]) {
-      return -1;
-    }
-    if (bPath[i] < aPath[i]) {
-      return 1;
-    }
-  }
-  return 0;
-}
+/**
+ * Type alias for inferring the output type of a schema.
+ * Equivalent to the old @badrap/valita `Infer<T>`.
+ */
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any
+export type Infer<T extends Type<any>> = InferOutput<T>;
 
 /**
  * 'strip' allows unknown properties and removes unknown properties.
@@ -181,9 +41,332 @@ function pathCmp(a: FailedType, b: FailedType) {
  */
 export type ParseOptionsMode = 'passthrough' | 'strict' | 'strip';
 
+type Key = string | number;
+
+function displayList<T>(
+  word: string,
+  items: T[],
+  toStr: (x: T) => string = x => String(x),
+): string {
+  if (items.length === 1) {
+    return toStr(items[0]);
+  }
+  const suffix = `${toStr(items[items.length - 2])} ${word} ${toStr(items[items.length - 1])}`;
+  if (items.length === 2) {
+    return suffix;
+  }
+  return `${items.slice(0, -2).map(toStr).join(', ')}, ${suffix}`;
+}
+
+/**
+ * Normalize valibot's capitalized type names to lowercase for consistency
+ * with the old @badrap/valita error message format.
+ */
+function norm(s: string): string {
+  if (s === 'Array') return 'array';
+  if (s === 'Object') return 'object';
+  return s;
+}
+
+/**
+ * Map a valibot literal or type schema to its base type name,
+ * used for combining union error messages like "Expected number or string".
+ */
+function baseTypeName(issue: {type: string; expected: string}): string {
+  if (issue.type === 'literal') {
+    const e = issue.expected;
+    if (e.startsWith('"')) return 'string';
+    if (e === 'true' || e === 'false') return 'boolean';
+    return 'number';
+  }
+  return norm(issue.expected);
+}
+
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any
+function getMessage(issue: any, value: unknown, mode?: ParseOptionsMode): string {
+  const path: Key[] = issue.path?.map((item: {key: Key}) => item.key) ?? [];
+  const atPath = path.length > 0 ? ` at ${path.join('.')}` : '';
+  const type: string = issue.type;
+  const expected = norm(issue.expected as string);
+  const received = norm(issue.received as string);
+
+  // Extra key in object/tuple (expected === 'never')
+  if (issue.expected === 'never') {
+    const key = path[path.length - 1];
+    const parentPath = path.slice(0, -1);
+    const atParent =
+      parentPath.length > 0 ? ` at ${parentPath.join('.')}` : '';
+    return `Unexpected property ${key}${atParent}`;
+  }
+
+  // Missing required key in strict object: expected is a quoted key name like '"x"'
+  if (
+    (type === 'strict_object' ||
+      type === 'object' ||
+      type === 'loose_object') &&
+    issue.received === 'undefined' &&
+    (issue.expected as string).startsWith('"')
+  ) {
+    // Check if the object schema is receiving a non-object (e.g. an array).
+    const parentPathItem = issue.path?.[issue.path.length - 1];
+    if (parentPathItem?.input !== undefined && Array.isArray(parentPathItem.input)) {
+      const parentPath = path.slice(0, -1);
+      const atParent =
+        parentPath.length > 0 ? ` at ${parentPath.join('.')}` : '';
+      return `Expected object${atParent}. Got array`;
+    }
+    const key = path[path.length - 1];
+    const parentPath = path.slice(0, -1);
+    const atParent =
+      parentPath.length > 0 ? ` at ${parentPath.join('.')}` : '';
+    return `Missing property ${key}${atParent}`;
+  }
+
+  // Union - needs schema to try each option
+  if (type === 'union') {
+    return formatUnionFallback(value, issue, mode);
+  }
+
+  // Literal mismatch - no period before "Got" (matches old valita format)
+  if (type === 'literal') {
+    return `Expected literal value ${expected}${atPath} Got ${received}`;
+  }
+
+  // Picklist (used in literalUnion)
+  if (type === 'picklist') {
+    const exp =
+      expected.startsWith('(') && expected.endsWith(')')
+        ? expected.slice(1, -1)
+        : expected;
+    return `Expected literal value ${exp}${atPath} Got ${received}`;
+  }
+
+  // Standard type mismatch
+  return `Expected ${expected}${atPath}. Got ${received}`;
+}
+
+/**
+ * Format a union error by trying each schema option separately (like @badrap/valita did).
+ * This finds the variant that got "closest" to matching (deepest error path) and
+ * reports that variant's error.
+ */
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any
+function formatUnionWithOptions(value: unknown, options: any[], mode?: ParseOptionsMode): string {
+  type Failure = {issue: any; depth: number; schema: any};
+  const failures: Failure[] = [];
+
+  for (const opt of options) {
+    // If this option is itself a union, recurse
+    if (opt.type === 'union') {
+      const r = v.safeParse(opt, value);
+      if (!r.success) {
+        // Create a synthetic failure with depth computed from the best sub-option
+        const msg = formatUnionWithOptions(value, opt.options, mode);
+        // We need a depth for comparison - try to find the deepest sub-option failure
+        let maxSubDepth = 0;
+        for (const subOpt of opt.options) {
+          const sr = v.safeParse(subOpt, value);
+          if (!sr.success) {
+            maxSubDepth = Math.max(maxSubDepth, sr.issues[0].path?.length ?? 0);
+          }
+        }
+        failures.push({issue: {_synthetic: true, _msg: msg}, depth: maxSubDepth, schema: opt});
+      }
+      continue;
+    }
+
+    const r = v.safeParse(opt, value);
+    if (!r.success) {
+      const firstIssue = r.issues[0];
+      failures.push({issue: firstIssue, depth: firstIssue.path?.length ?? 0, schema: opt});
+    }
+  }
+
+  if (!failures.length) {
+    try {
+      return `Invalid union value: ${JSON.stringify(value)}`;
+    } catch {
+      return `Invalid union value`;
+    }
+  }
+
+  // Sort by descending depth
+  failures.sort((a, b) => b.depth - a.depth);
+
+  // If there's a single deepest failure (or if it's unique), use it
+  if (failures.length === 1 || failures[0].depth > failures[1].depth) {
+    const {issue} = failures[0];
+    if (issue._synthetic) {
+      return issue._msg as string;
+    }
+    return getMessage(issue, value, mode);
+  }
+
+  // Tie at depth 0: combine expected types
+  if (failures[0].depth === 0) {
+    // Skip synthetic issues for this
+    const realFailures = failures.filter(f => !f.issue._synthetic);
+    if (!realFailures.length) {
+      try {
+        return `Invalid union value: ${JSON.stringify(value)}`;
+      } catch {
+        return `Invalid union value`;
+      }
+    }
+
+    const allLiterals = realFailures.every(f => f.issue.type === 'literal');
+    if (allLiterals) {
+      const exp = displayList('or', realFailures.map(f => norm(f.issue.expected)));
+      return `Expected literal value ${exp} Got ${norm(realFailures[0].issue.received)}`;
+    }
+
+    const seen = new Set<string>();
+    const types: string[] = [];
+    for (const {issue} of realFailures) {
+      const t = baseTypeName(issue);
+      if (!seen.has(t)) {
+        seen.add(t);
+        types.push(t);
+      }
+    }
+    return `Expected ${displayList('or', types)}. Got ${norm(realFailures[0].issue.received)}`;
+  }
+
+  // Tie at non-zero depth: fall back
+  try {
+    return `Invalid union value: ${JSON.stringify(value)}`;
+  } catch {
+    return `Invalid union value`;
+  }
+}
+
+/**
+ * Fallback union formatter when we don't have direct schema access.
+ * Uses valibot's flattened sub-issues.
+ */
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any
+function formatUnionFallback(value: unknown, unionIssue: any, mode?: ParseOptionsMode): string {
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+  const subIssues: any[] = unionIssue.issues ?? [];
+
+  const unionPath: Key[] =
+    unionIssue.path?.map((p: {key: Key}) => p.key) ?? [];
+  const atUnionPath =
+    unionPath.length > 0 ? ` at ${unionPath.join('.')}` : '';
+
+  if (!subIssues.length) {
+    if (unionPath.length > 0) {
+      return `Invalid union value${atUnionPath}`;
+    }
+    try {
+      return `Invalid union value: ${JSON.stringify(value)}`;
+    } catch {
+      return `Invalid union value`;
+    }
+  }
+
+  const maxDepth = Math.max(
+    ...subIssues.map((i: {path?: unknown[]}) => i.path?.length ?? 0),
+  );
+
+  if (maxDepth === 0) {
+    const allLiterals = subIssues.every(
+      (i: {type: string}) => i.type === 'literal',
+    );
+    if (allLiterals) {
+      const exp = displayList(
+        'or',
+        subIssues.map((i: {expected: string}) => norm(i.expected)),
+      );
+      return `Expected literal value ${exp}${atUnionPath} Got ${norm(subIssues[0].received)}`;
+    }
+
+    const seen = new Set<string>();
+    const types: string[] = [];
+    for (const i of subIssues) {
+      const t = baseTypeName(i);
+      if (!seen.has(t)) {
+        seen.add(t);
+        types.push(t);
+      }
+    }
+    return `Expected ${displayList('or', types)}${atUnionPath}. Got ${norm(subIssues[0].received)}`;
+  }
+
+  // Find single deepest sub-issue
+  let deepest = subIssues[0];
+  for (const i of subIssues.slice(1)) {
+    if ((i.path?.length ?? 0) > (deepest.path?.length ?? 0)) {
+      deepest = i;
+    }
+  }
+
+  const deepestCount = subIssues.filter(
+    (i: {path?: unknown[]}) => (i.path?.length ?? 0) === maxDepth,
+  ).length;
+  if (deepestCount > 1) {
+    if (unionPath.length > 0) {
+      return `Invalid union value${atUnionPath}`;
+    }
+    try {
+      return `Invalid union value: ${JSON.stringify(value)}`;
+    } catch {
+      return `Invalid union value`;
+    }
+  }
+
+  return getMessage(deepest, value, mode);
+}
+
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any
+function applyMode(schema: any, mode: ParseOptionsMode): any {
+  if (mode === 'strict') {
+    return schema;
+  }
+  switch (schema.type) {
+    case 'strict_object':
+    case 'object':
+    case 'loose_object': {
+      const entries: ObjectEntries = Object.fromEntries(
+        // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+        Object.entries(schema.entries).map(([k, val]) => [
+          k,
+          applyMode(val, mode),
+        ]),
+      ) as ObjectEntries;
+      return mode === 'passthrough'
+        ? v.looseObject(entries)
+        : v.object(entries);
+    }
+    case 'optional':
+      return v.optional(applyMode(schema.wrapped, mode));
+    case 'nullable':
+      return v.nullable(applyMode(schema.wrapped, mode));
+    case 'union':
+      // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+      return v.union(schema.options.map((o: any) => applyMode(o, mode)));
+    case 'array':
+      return v.array(applyMode(schema.item, mode));
+    default:
+      return schema;
+  }
+}
+
+type Result<T> = {ok: true; value: T} | {ok: false; error: string};
+
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any
+function getErrorMessage(issue: any, value: unknown, schema: any, mode?: ParseOptionsMode): string {
+  if (issue.type === 'union' && !issue.path?.length && schema?.type === 'union') {
+    // Top-level union: use schema options for better error messages
+    return formatUnionWithOptions(value, schema.options, mode);
+  }
+  // For nested union errors, fall back to the flattened issue approach
+  return getMessage(issue, value, mode);
+}
+
 export function parse<T>(
   value: unknown,
-  schema: v.Type<T>,
+  schema: Type<T>,
   mode?: ParseOptionsMode,
 ): T {
   const res = test(value, schema, mode);
@@ -195,7 +378,7 @@ export function parse<T>(
 
 export function is<T>(
   value: unknown,
-  schema: v.Type<T>,
+  schema: Type<T>,
   mode?: ParseOptionsMode,
 ): value is T {
   return test(value, schema, mode).ok;
@@ -203,114 +386,133 @@ export function is<T>(
 
 export function assert<T>(
   value: unknown,
-  schema: v.Type<T>,
+  schema: Type<T>,
   mode?: ParseOptionsMode,
 ): asserts value is T {
   parse(value, schema, mode);
 }
 
-type Result<T> = {ok: true; value: T} | {ok: false; error: string};
-
 export function test<T>(
   value: unknown,
-  schema: v.Type<T>,
+  schema: Type<T>,
   mode?: ParseOptionsMode,
 ): Result<T> {
-  const res = schema.try(value, mode ? {mode} : undefined);
-  if (!res.ok) {
+  const effectiveSchema =
+    mode !== undefined && mode !== 'strict'
+      ? applyMode(schema, mode)
+      : schema;
+  const result = v.safeParse(effectiveSchema, value);
+  if (!result.success) {
     return {
       ok: false,
-      error: getMessage(res, value, schema, mode),
+      error: getErrorMessage(result.issues[0], value, schema, mode),
     };
   }
-  return res;
+  return {ok: true, value: result.output};
 }
 
 /**
- * Similar to {@link test} but works for AbstractTypes such as Optional.
+ * Similar to {@link test} but works for Optional schemas.
  * This is for advanced usage. Prefer {@link test} unless you really need
  * to operate directly on an Optional field.
  */
 export function testOptional<T>(
   value: unknown,
-  schema: v.Type<T> | v.Optional<T>,
+  schema: Type<T> | Optional<T>,
   mode?: ParseOptionsMode,
 ): Result<T | undefined> {
-  let flags = 0x1; // FLAG_FORBID_EXTRA_KEYS;
-  if (mode === 'passthrough') {
-    flags = 0;
-  } else if (mode === 'strip') {
-    flags = 0x2; // FLAG_STRIP_EXTRA_KEYS;
+  const effectiveSchema =
+    mode !== undefined && mode !== 'strict'
+      ? applyMode(schema, mode)
+      : schema;
+  const result = v.safeParse(effectiveSchema, value);
+  if (!result.success) {
+    return {
+      ok: false,
+      error: getErrorMessage(result.issues[0], value, schema, mode),
+    };
   }
-  const res = schema.func(value, flags);
-  if (res === undefined) {
-    return {ok: true, value} as Result<T>;
-  } else if (res.ok) {
-    return res;
-  }
-  const err = new v.ValitaError(res);
-  return {ok: false, error: getMessage(err, value, schema, mode)};
+  return {ok: true, value: result.output as T | undefined};
 }
 
 /**
  * Shallowly marks the schema as readonly.
  */
-export function readonly<T extends v.Type>(t: T): v.Type<Readonly<v.Infer<T>>> {
-  return t as v.Type<Readonly<v.Infer<T>>>;
+export function readonly<T extends Type<unknown>>(
+  t: T,
+): Type<Readonly<InferOutput<T>>> {
+  return t as Type<Readonly<InferOutput<T>>>;
 }
 
-export function readonlyObject<T extends Record<string, v.Type | v.Optional>>(
+export function readonlyObject<T extends ObjectEntries>(
   t: T,
-): v.ObjectType<Readonly<T>, undefined> {
-  return v.object(t);
+): StrictObjectSchema<T, undefined> {
+  return v.strictObject(t);
 }
 
-export function readonlyArray<T extends v.Type>(
+export function readonlyArray<T extends Type<unknown>>(
   t: T,
-): v.Type<readonly v.Infer<T>[]> {
+): ArraySchema<T, undefined> {
   return v.array(t);
 }
 
-export function readonlyRecord<T extends v.Type>(
+export function readonlyRecord<T extends Type<unknown>>(
   t: T,
-): v.Type<Readonly<Record<string, v.Infer<T>>>> {
-  return v.record(t);
+): RecordSchema<v.StringSchema<undefined>, T, undefined> {
+  return v.record(v.string(), t);
 }
-
-const AbstractType = Object.getPrototypeOf(
-  Object.getPrototypeOf(v.string().optional()),
-).constructor;
 
 export function instanceOfAbstractType<T = unknown>(
   obj: unknown,
-): obj is v.Type<T> | v.Optional<T> {
-  return obj instanceof AbstractType;
+): obj is Type<T> | Optional<T> {
+  return (
+    obj !== null &&
+    typeof obj === 'object' &&
+    'kind' in obj &&
+    (obj as {kind: unknown}).kind === 'schema'
+  );
 }
 
-type ObjectShape = Record<string, typeof AbstractType>;
+type ObjectShape = Record<string, Type<unknown> | Optional<unknown>>;
 
 /**
  * Similar to `ObjectType.partial()` except it recurses into nested objects.
- * Rest types are not supported.
  */
-export function deepPartial<Shape extends ObjectShape>(
-  s: v.ObjectType<Shape, undefined>,
-) {
-  const shape = {} as Record<string, unknown>;
-  for (const [key, type] of Object.entries(s.shape)) {
-    if (type.name === 'object') {
-      shape[key] = deepPartial(type as v.ObjectType).optional();
+export function deepPartial<T extends ObjectShape>(
+  s: StrictObjectSchema<T, undefined>,
+): StrictObjectSchema<
+  {[K in keyof T]: OptionalSchema<T[K], undefined>},
+  undefined
+> {
+  const shape: ObjectEntries = {};
+  for (const [key, type] of Object.entries(s.entries)) {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((type as any).type === 'strict_object') {
+      shape[key] = v.optional(
+        deepPartial(type as StrictObjectSchema<ObjectShape, undefined>),
+      );
     } else {
-      shape[key] = type.optional();
+      shape[key] = v.optional(type as Type<unknown>);
     }
   }
-  return v.object(shape as {[K in keyof Shape]: v.Optional<v.Infer<Shape[K]>>});
+  return v.strictObject(shape) as unknown as StrictObjectSchema<
+    {[K in keyof T]: OptionalSchema<T[K], undefined>},
+    undefined
+  >;
 }
 
 type Literal = string | number | bigint | boolean;
+type LiteralSchemas<T extends Literal[]> = {
+  [K in keyof T]: v.LiteralSchema<T[K], undefined>;
+};
 
-export function literalUnion<T extends [...Literal[]]>(
+export function literalUnion<T extends [Literal, ...Literal[]]>(
   ...literals: T
-): v.Type<T[number]> {
-  return v.union(...literals.map(v.literal));
+): v.UnionSchema<LiteralSchemas<T>, undefined> {
+  return v.union(
+    literals.map(l => v.literal(l)) as unknown as [
+      Type<T[number]>,
+      ...Type<T[number]>[],
+    ],
+  ) as unknown as v.UnionSchema<LiteralSchemas<T>, undefined>;
 }

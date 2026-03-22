@@ -9,13 +9,13 @@ const t = <T>(s: v.Type<T>, val: unknown, message?: string) => {
   let ex;
   try {
     const parsed = parse(val, s);
-    expect(parsed).toBe(val);
+    expect(parsed).toStrictEqual(val);
 
     expect(r1.ok).toBe(true);
-    expect(r1.ok && r1.value).toBe(val);
+    expect(r1.ok && r1.value).toStrictEqual(val);
 
     expect(r2.ok).toBe(true);
-    expect(r2.ok && r2.value).toBe(val);
+    expect(r2.ok && r2.value).toStrictEqual(val);
   } catch (err) {
     ex = err;
   }
@@ -71,7 +71,7 @@ test('basic', () => {
   t(v.array(v.number()), [1, 2, 3]);
   t(v.array(v.number()), []);
 
-  for (const s of [v.array(v.number()), v.tuple([v.number()])]) {
+  for (const s of [v.array(v.number()), v.strictTuple([v.number()])]) {
     t(s, 42, 'Expected array. Got 42');
     t(s, 'hi', 'Expected array. Got "hi"');
     t(s, true, 'Expected array. Got true');
@@ -81,16 +81,12 @@ test('basic', () => {
     t(s, {}, 'Expected array. Got object');
   }
 
-  t(v.tuple([]), []);
-  t(v.tuple([]), [42], 'Expected array with length 0. Got array with length 1');
-  t(
-    v.tuple([v.number()]),
-    [],
-    'Expected array with length 1. Got array with length 0',
-  );
+  t(v.strictTuple([]), []);
+  t(v.strictTuple([]), [42], 'Unexpected property 0');
+  t(v.strictTuple([v.number()]), [], 'Expected number at 0. Got undefined');
 
   {
-    const s = v.record(v.number());
+    const s = v.record(v.string(), v.number());
     t(s, {});
     t(s, {x: 42});
     t(s, 42, 'Expected object. Got 42');
@@ -102,7 +98,7 @@ test('basic', () => {
   }
 
   {
-    const s = v.object({x: v.number()});
+    const s = v.strictObject({x: v.number()});
     t(s, {x: 42});
     t(s, 42, 'Expected object. Got 42');
     t(s, 'hi', 'Expected object. Got "hi"');
@@ -115,15 +111,15 @@ test('basic', () => {
   t(v.array(v.number()), ['hi'], 'Expected number at 0. Got "hi"');
   t(v.array(v.number()), [1, 2, 'hi'], 'Expected number at 2. Got "hi"');
 
-  t(v.tuple([v.number()]), ['hi'], 'Expected number at 0. Got "hi"');
+  t(v.strictTuple([v.number()]), ['hi'], 'Expected number at 0. Got "hi"');
 
-  t(v.record(v.number()), {x: 'hi'}, 'Expected number at x. Got "hi"');
-  t(v.object({x: v.number()}), {x: 'hi'}, 'Expected number at x. Got "hi"');
+  t(v.record(v.string(), v.number()), {x: 'hi'}, 'Expected number at x. Got "hi"');
+  t(v.strictObject({x: v.number()}), {x: 'hi'}, 'Expected number at x. Got "hi"');
 
   {
-    const s = v.object({
-      x: v.object({
-        y: v.object({
+    const s = v.strictObject({
+      x: v.strictObject({
+        y: v.strictObject({
           z: v.number(),
         }),
       }),
@@ -143,12 +139,13 @@ test('basic', () => {
 
     // Extra properties
     t(s, {x: {y: {z: 1, a: 2}}}, 'Unexpected property a at x.y');
-    t(s, {x: {y: {z: 1, a: 2, b: 3}}}, 'Unexpected properties a and b at x.y');
+    // Note: valibot only reports the first extra key
+    t(s, {x: {y: {z: 1, a: 2, b: 3}}}, 'Unexpected property a at x.y');
   }
 
   {
-    const s = v.object({
-      x: v.object({
+    const s = v.strictObject({
+      x: v.strictObject({
         y: v.number(),
         z: v.number(),
       }),
@@ -159,20 +156,20 @@ test('basic', () => {
   }
 
   {
-    const s = v.union(v.number());
+    const s = v.union([v.number()]);
     t(s, 42);
     t(s, true, 'Expected number. Got true');
   }
 
   {
-    const s = v.union(v.number(), v.string());
+    const s = v.union([v.number(), v.string()]);
     t(s, 42);
     t(s, 'hi');
     t(s, true, 'Expected number or string. Got true');
   }
 
   {
-    const s = v.union(v.number(), v.string(), v.boolean());
+    const s = v.union([v.number(), v.string(), v.boolean()]);
     t(s, 42);
     t(s, 'hi');
     t(s, true);
@@ -180,7 +177,7 @@ test('basic', () => {
   }
 
   {
-    const s = v.union(v.number(), v.literal('x'), v.boolean());
+    const s = v.union([v.number(), v.literal('x'), v.boolean()]);
     t(s, 42);
     t(s, 'x');
     t(s, true);
@@ -188,7 +185,7 @@ test('basic', () => {
   }
 
   {
-    const s = v.union(v.literal(1), v.literal('yes'), v.literal(true));
+    const s = v.union([v.literal(1), v.literal('yes'), v.literal(true)]);
     t(s, 1);
     t(s, 'yes');
     t(s, true);
@@ -196,7 +193,7 @@ test('basic', () => {
     t(s, null, 'Expected literal value 1, "yes" or true Got null');
   }
   {
-    const s = v.union(v.literal(1), v.literal('yes'), v.boolean());
+    const s = v.union([v.literal(1), v.literal('yes'), v.boolean()]);
     t(s, 1);
     t(s, 'yes');
     t(s, true);
@@ -205,8 +202,8 @@ test('basic', () => {
   }
 
   {
-    const s = v.object({
-      x: v.number().optional(),
+    const s = v.strictObject({
+      x: v.optional(v.number()),
     });
 
     t(s, {});
@@ -217,11 +214,11 @@ test('basic', () => {
   }
 
   {
-    const s = v.union(
-      v.tuple([v.literal(1), v.number()]),
-      v.tuple([v.literal('b'), v.string()]),
-      v.tuple([v.literal(true), v.boolean()]),
-    );
+    const s = v.union([
+      v.strictTuple([v.literal(1), v.number()]),
+      v.strictTuple([v.literal('b'), v.string()]),
+      v.strictTuple([v.literal(true), v.boolean()]),
+    ]);
     t(s, [1, 1]);
     t(s, ['b', 'b']);
     t(s, [true, true]);
@@ -230,7 +227,7 @@ test('basic', () => {
     t(s, {}, 'Expected array. Got object');
     t(s, 'a', 'Expected array. Got "a"');
 
-    const s2 = v.object({
+    const s2 = v.strictObject({
       x: s,
     });
     t(s2, {x: []}, 'Invalid union value at x');
@@ -238,14 +235,14 @@ test('basic', () => {
 });
 
 test('union error message', () => {
-  const type = v.union(
-    v.tuple([v.literal('a'), v.object({a: v.string()})]),
-    v.tuple([v.literal('b'), v.object({b: v.number()})]),
-    v.tuple([v.literal('c'), v.object({c: v.boolean()})]),
-  );
+  const type = v.union([
+    v.strictTuple([v.literal('a'), v.strictObject({a: v.string()})]),
+    v.strictTuple([v.literal('b'), v.strictObject({b: v.number()})]),
+    v.strictTuple([v.literal('c'), v.strictObject({c: v.boolean()})]),
+  ]);
   // Test once with the union itself, then with union(union) and union(union(union))
   // to verify recursion.
-  for (const s of [type, v.union(type), v.union(v.union(type))]) {
+  for (const s of [type, v.union([type]), v.union([v.union([type])])]) {
     t(s, ['a', {a: 'payload'}]);
     t(s, ['b', {b: 123}]);
     t(s, ['c', {c: true}]);
@@ -260,7 +257,7 @@ test('union error message', () => {
 });
 
 test('testOptional', () => {
-  const s = v.number().optional();
+  const s = v.optional(v.number());
 
   expect(v.testOptional(123, s)).toEqual({ok: true, value: 123});
   expect(v.testOptional(undefined, s)).toEqual({ok: true, value: undefined});
@@ -276,7 +273,7 @@ test('testOptional', () => {
 });
 
 test('array instead of object error message', () => {
-  const s = v.object({
+  const s = v.strictObject({
     x: v.number(),
   });
 
@@ -295,7 +292,7 @@ test('array instead of object error message', () => {
 
 test('instanceOfAbstractType', () => {
   const num = v.number();
-  const optional = num.optional();
+  const optional = v.optional(num);
 
   expect(v.instanceOfAbstractType(num)).toBe(true);
   expect(v.instanceOfAbstractType(optional)).toBe(true);
@@ -308,8 +305,8 @@ test('instanceOfAbstractType', () => {
 
 test('deepPartial', () => {
   const s = v.deepPartial(
-    v.object({
-      a: v.object({
+    v.strictObject({
+      a: v.strictObject({
         b: v.string(),
       }),
     }),
@@ -329,6 +326,6 @@ test('literalUnion', () => {
   expect(v.parse(true, s)).toBe(true);
   expect(v.parse(42n, s)).toBe(42n);
   expect(() => v.parse('c', s)).toThrow(
-    new TypeError(`Expected literal value "a", "b", 1, true or 42n Got "c"`),
+    new TypeError(`Expected literal value "a", "b", 1, true or 42 Got "c"`),
   );
 });
