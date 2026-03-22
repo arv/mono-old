@@ -17,32 +17,32 @@ export const CRUD_MUTATION_NAME = '_zero_crud';
 // acknowledged mutation results from the upstream database.
 export const CLEANUP_RESULTS_MUTATION_NAME = '_zero_cleanupResults';
 
-export const cleanupResultsArgSchema = v.union(
+export const cleanupResultsArgSchema = v.union([
   // Legacy format (no type field) - treat as single
-  v.object({
+  v.strictObject({
     clientGroupID: v.string(),
     clientID: v.string(),
     upToMutationID: v.number(),
   }),
   // Explicit single: delete up to a specific mutation ID for one client
-  v.object({
+  v.strictObject({
     type: v.literal('single'),
     clientGroupID: v.string(),
     clientID: v.string(),
     upToMutationID: v.number(),
   }),
   // Bulk: delete all mutations for multiple clients
-  v.object({
+  v.strictObject({
     type: v.literal('bulk'),
     clientGroupID: v.string(),
-    clientIDs: v.tuple([v.string()]).concat(v.array(v.string())),
+    clientIDs: v.tupleWithRest([v.string()], v.string()),
   }),
-);
+]);
 
 /**
  * Inserts if entity with id does not already exist.
  */
-const insertOpSchema = v.object({
+const insertOpSchema = v.strictObject({
   op: v.literal('insert'),
   tableName: v.string(),
   primaryKey: primaryKeySchema,
@@ -53,7 +53,7 @@ const insertOpSchema = v.object({
  * Upsert semantics. Inserts if entity with id does not already exist,
  * otherwise updates existing entity with id.
  */
-const upsertOpSchema = v.object({
+const upsertOpSchema = v.strictObject({
   op: v.literal('upsert'),
   tableName: v.string(),
   primaryKey: primaryKeySchema,
@@ -63,7 +63,7 @@ const upsertOpSchema = v.object({
 /**
  * Updates if entity with id exists, otherwise does nothing.
  */
-const updateOpSchema = v.object({
+const updateOpSchema = v.strictObject({
   op: v.literal('update'),
   tableName: v.string(),
   primaryKey: primaryKeySchema,
@@ -74,7 +74,7 @@ const updateOpSchema = v.object({
 /**
  * Deletes entity with id if it exists, otherwise does nothing.
  */
-const deleteOpSchema = v.object({
+const deleteOpSchema = v.strictObject({
   op: v.literal('delete'),
   tableName: v.string(),
   primaryKey: primaryKeySchema,
@@ -82,20 +82,20 @@ const deleteOpSchema = v.object({
   value: primaryKeyValueRecordSchema,
 });
 
-const crudOpSchema = v.union(
+const crudOpSchema = v.union([
   insertOpSchema,
   upsertOpSchema,
   updateOpSchema,
   deleteOpSchema,
-);
+]);
 
-const crudArgSchema = v.object({
+const crudArgSchema = v.strictObject({
   ops: v.array(crudOpSchema),
 });
 
-const crudArgsSchema = v.tuple([crudArgSchema]);
+const crudArgsSchema = v.strictTuple([crudArgSchema]);
 
-export const crudMutationSchema = v.object({
+export const crudMutationSchema = v.strictObject({
   type: v.literal(MutationType.CRUD),
   id: v.number(),
   clientID: v.string(),
@@ -104,7 +104,7 @@ export const crudMutationSchema = v.object({
   timestamp: v.number(),
 });
 
-export const customMutationSchema = v.object({
+export const customMutationSchema = v.strictObject({
   type: v.literal(MutationType.Custom),
   id: v.number(),
   clientID: v.string(),
@@ -113,79 +113,79 @@ export const customMutationSchema = v.object({
   timestamp: v.number(),
 });
 
-export const mutationSchema = v.union(crudMutationSchema, customMutationSchema);
+export const mutationSchema = v.union([crudMutationSchema, customMutationSchema]);
 
-export const pushBodySchema = v.object({
+export const pushBodySchema = v.strictObject({
   clientGroupID: v.string(),
   mutations: v.array(mutationSchema),
   pushVersion: v.number(),
   // For legacy (CRUD) mutations, the schema is tied to the client group /
   // sync connection. For custom mutations, schema versioning is delegated
   // to the custom protocol / api-server.
-  schemaVersion: v.number().optional(),
+  schemaVersion: v.optional(v.number()),
   timestamp: v.number(),
   requestID: v.string(),
 });
 
-export const pushMessageSchema = v.tuple([v.literal('push'), pushBodySchema]);
+export const pushMessageSchema = v.strictTuple([v.literal('push'), pushBodySchema]);
 
-const appErrorSchema = v.object({
+const appErrorSchema = v.strictObject({
   error: v.literal('app'),
   // The user can return any additional data here
-  message: v.string().optional(),
-  details: jsonSchema.optional(),
+  message: v.optional(v.string()),
+  details: v.optional(jsonSchema),
 });
-const zeroErrorSchema = v.object({
-  error: v.union(
+const zeroErrorSchema = v.strictObject({
+  error: v.union([
     /** @deprecated push oooMutation errors are now represented as ['error', { ... }] messages */
     v.literal('oooMutation'),
     v.literal('alreadyProcessed'),
-  ),
-  details: jsonSchema.optional(),
+  ]),
+  details: v.optional(jsonSchema),
 });
 
-const mutationOkSchema = v.object({
+const mutationOkSchema = v.strictObject({
   // The user can return any additional data here
-  data: jsonSchema.optional(),
+  data: v.optional(jsonSchema),
 });
-const mutationErrorSchema = v.union(appErrorSchema, zeroErrorSchema);
+const mutationErrorSchema = v.union([appErrorSchema, zeroErrorSchema]);
 
-export const mutationResultSchema = v.union(
+export const mutationResultSchema = v.union([
   mutationOkSchema,
   mutationErrorSchema,
-);
+]);
 
-export const mutationResponseSchema = v.object({
+export const mutationResponseSchema = v.strictObject({
   id: mutationIDSchema,
   result: mutationResultSchema,
 });
 
-const pushOkSchema = v.object({
+const pushOkSchema = v.strictObject({
   mutations: v.array(mutationResponseSchema),
 });
 
 /**
  * @deprecated push errors are now represented as ['error', { ... }] messages
  */
-const unsupportedPushVersionSchema = v.object({
+const unsupportedPushVersionSchema = v.strictObject({
   /** @deprecated */
   error: v.literal('unsupportedPushVersion'),
   /** @deprecated */
-  mutationIDs: v.array(mutationIDSchema).optional(),
+  mutationIDs: v.optional(v.array(mutationIDSchema)),
 });
 /**
  * @deprecated push errors are now represented as ['error', { ... }] messages
  */
-const unsupportedSchemaVersionSchema = v.object({
+const unsupportedSchemaVersionSchema = v.strictObject({
   /** @deprecated */
   error: v.literal('unsupportedSchemaVersion'),
   /** @deprecated */
-  mutationIDs: v.array(mutationIDSchema).optional(),
+  mutationIDs: v.optional(v.array(mutationIDSchema)),
 });
 /**
  * @deprecated push http errors are now represented as ['error', { ... }] messages
  */
-const httpErrorSchema = v.object({
+const httpErrorSchema = v.strictObject({
   /** @deprecated */
   error: v.literal('http'),
   /** @deprecated */
@@ -193,41 +193,41 @@ const httpErrorSchema = v.object({
   /** @deprecated */
   details: v.string(),
   /** @deprecated */
-  mutationIDs: v.array(mutationIDSchema).optional(),
+  mutationIDs: v.optional(v.array(mutationIDSchema)),
 });
 /**
  * @deprecated push zero errors are now represented as ['error', { ... }] messages
  */
-const zeroPusherErrorSchema = v.object({
+const zeroPusherErrorSchema = v.strictObject({
   /** @deprecated */
   error: v.literal('zeroPusher'),
   /** @deprecated */
   details: v.string(),
   /** @deprecated */
-  mutationIDs: v.array(mutationIDSchema).optional(),
+  mutationIDs: v.optional(v.array(mutationIDSchema)),
 });
 /**
  * @deprecated push errors are now represented as ['error', { ... }] messages
  */
-const pushErrorSchema = v.union(
+const pushErrorSchema = v.union([
   unsupportedPushVersionSchema,
   unsupportedSchemaVersionSchema,
   httpErrorSchema,
   zeroPusherErrorSchema,
-);
+]);
 
-export const pushResponseBodySchema = v.union(pushOkSchema, pushErrorSchema);
+export const pushResponseBodySchema = v.union([pushOkSchema, pushErrorSchema]);
 
-export const pushResponseSchema = v.union(
+export const pushResponseSchema = v.union([
   pushResponseBodySchema,
   pushFailedBodySchema,
-);
-export const pushResponseMessageSchema = v.tuple([
+]);
+export const pushResponseMessageSchema = v.strictTuple([
   v.literal('pushResponse'),
   pushResponseBodySchema,
 ]);
 
-export const ackMutationResponsesMessageSchema = v.tuple([
+export const ackMutationResponsesMessageSchema = v.strictTuple([
   v.literal('ackMutationResponses'),
   mutationIDSchema,
 ]);
@@ -235,7 +235,7 @@ export const ackMutationResponsesMessageSchema = v.tuple([
 /**
  * The schema for the querystring parameters of the custom push endpoint.
  */
-export const pushParamsSchema = v.object({
+export const pushParamsSchema = v.strictObject({
   schema: v.string(),
   appID: v.string(),
 });

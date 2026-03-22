@@ -14,7 +14,7 @@ export const closeConnectionBodySchema = v.array(v.unknown());
  * 
  * @deprecated
  */
-export const closeConnectionMessageSchema = v.tuple([
+export const closeConnectionMessageSchema = v.strictTuple([
   v.literal('closeConnection'),
   closeConnectionBodySchema,
 ]);

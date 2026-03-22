@@ -1,27 +1,27 @@
 import * as v from '../../shared/src/valita.ts';
 import {nullableVersionSchema, versionSchema} from './version.ts';
 
-export const pullRequestBodySchema = v.object({
+export const pullRequestBodySchema = v.strictObject({
   clientGroupID: v.string(),
   cookie: nullableVersionSchema,
   requestID: v.string(),
 });
 
-export const pullResponseBodySchema = v.object({
+export const pullResponseBodySchema = v.strictObject({
   cookie: versionSchema,
   // Matches pullRequestBodySchema requestID that initiated this response
   requestID: v.string(),
-  lastMutationIDChanges: v.record(v.number()),
+  lastMutationIDChanges: v.record(v.string(), v.number()),
   // Pull is currently only used for mutation recovery which does not use
   // the patch so we save work by not computing the patch.
 });
 
-export const pullRequestMessageSchema = v.tuple([
+export const pullRequestMessageSchema = v.strictTuple([
   v.literal('pull'),
   pullRequestBodySchema,
 ]);
 
-export const pullResponseMessageSchema = v.tuple([
+export const pullResponseMessageSchema = v.strictTuple([
   v.literal('pull'),
   pullResponseBodySchema,
 ]);

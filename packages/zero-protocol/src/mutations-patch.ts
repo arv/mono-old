@@ -9,15 +9,15 @@ import {mutationResponseSchema} from './push.ts';
  * On put the mutation promise is resolved/rejected
  * and reference released.
  */
-export const putOpSchema = v.object({
+export const putOpSchema = v.strictObject({
   op: v.literal('put'),
   mutation: mutationResponseSchema,
 });
-export const delOpSchema = v.object({
+export const delOpSchema = v.strictObject({
   op: v.literal('del'),
   id: mutationIDSchema,
 });
 
-const patchOpSchema = v.union(putOpSchema, delOpSchema);
+const patchOpSchema = v.union([putOpSchema, delOpSchema]);
 export const mutationsPatchSchema = v.array(patchOpSchema);
 export type MutationPatch = v.Infer<typeof patchOpSchema>;

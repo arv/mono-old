@@ -1,7 +1,7 @@
 import {jsonSchema} from '../../shared/src/json-schema.ts';
 import * as v from '../../shared/src/valita.ts';
 
-export const valueSchema = v.union(jsonSchema, v.undefined());
+export const valueSchema = v.union([jsonSchema, v.undefined()]);
 
 export const rowSchema = v.readonlyRecord(valueSchema);
 
@@ -11,7 +11,7 @@ export const rowSchema = v.readonlyRecord(valueSchema);
  * 1. The underlying Replicache sync layer currently can only represent JSON
  *    types. This could possibly be expanded in the future, but we do want to be
  *    careful of adding encoding overhead. By using JSON, we are taking
- *    advantage of IndexedDB’s fast native JSValue [de]serialization which has
+ *    advantage of IndexedDB's fast native JSValue [de]serialization which has
  *    historically been a perf advantage for us.
  *
  * 2. IDs in Zero need to be comparable because we use them for sorting and row
