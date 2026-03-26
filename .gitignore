@@ -65,6 +65,16 @@ lerna-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# generated declaration files emitted into source directories
+packages/*/src/**/*.d.ts.map
+apps/*/src/**/*.d.ts.map
+packages/*/src/**/*.d.ts
+apps/*/src/**/*.d.ts
+!packages/*/src/env.d.ts
+!packages/*/src/vite-env.d.ts
+!packages/*/src/vite.d.ts
+!apps/*/src/vite-env.d.ts
+!apps/*/src/vite.d.ts
 
 # wrangler
 .wrangler/
