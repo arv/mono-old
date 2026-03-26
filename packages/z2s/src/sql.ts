@@ -256,7 +256,7 @@ function pgTypeForLiteralType(type: Exclude<LiteralType, 'null'>) {
   }
 }
 
-export const sql = baseSql.default;
+export const sql = baseSql;
 
 const PREVIOUSLY_SEEN_VALUE = Symbol('PREVIOUSLY_SEEN_VALUE');
 

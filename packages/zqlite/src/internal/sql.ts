@@ -15,4 +15,4 @@ export function format(sql: SQLQuery) {
   return sql.format(sqliteFormat);
 }
 
-export const sql = baseSql.default;
+export const sql = baseSql;
