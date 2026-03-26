@@ -112,7 +112,7 @@ await runBenchmarks(
             ),
           ],
         ];
-      })(),
+      })() satisfies PushGenerator,
     },
   ],
 );
